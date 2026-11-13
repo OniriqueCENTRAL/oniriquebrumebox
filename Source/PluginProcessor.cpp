@@ -1,6 +1,7 @@
 // Onirique BrumeBox — le plugin
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
+#include "Presets.h"
 
 namespace onirique
 {
@@ -201,6 +202,112 @@ void BrumeBoxProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer&)
 AudioProcessorEditor* BrumeBoxProcessor::createEditor()
 {
     return new BrumeBoxEditor (*this);
+}
+
+//==============================================================================
+File BrumeBoxProcessor::userPresetFolder()
+{
+    return File::getSpecialLocation (File::userDocumentsDirectory).getChildFile ("Onirique/BrumeBox/Presets");
+}
+
+std::vector<BrumeBoxProcessor::Preset> BrumeBoxProcessor::listPresets() const
+{
+    std::vector<Preset> list;
+    int index = 0;
+    for (const auto& f : presets::factory)
+        list.push_back ({ String::fromUTF8 (f.category), String::fromUTF8 (f.name), index++, {} });
+
+    // Les presets de l'utilisateur, rangés par sous-dossier comme dans le dossier.
+    const auto folder = userPresetFolder();
+    auto files = folder.findChildFiles (File::findFiles, true, "*.preset");
+    files.sort();
+    for (const auto& file : files)
+    {
+        const auto parent = file.getParentDirectory();
+        const auto category = parent == folder ? String ("MES PRESETS") : "MES PRESETS · " + parent.getFileName().toUpperCase();
+        list.push_back ({ category, file.getFileNameWithoutExtension(), -1, file });
+    }
+    return list;
+}
+
+void BrumeBoxProcessor::applyValues (const std::map<String, float>& values, const String& presetName)
+{
+    for (auto* p : getParameters())
+    {
+        auto* ranged = dynamic_cast<RangedAudioParameter*> (p);
+        if (ranged == nullptr)
+            continue;
+
+        const auto it = values.find (ranged->getParameterID());
+        const auto normalised = it != values.end() ? ranged->convertTo0to1 (ranged->getNormalisableRange().snapToLegalValue (it->second))
+                                                   : ranged->getDefaultValue();
+        ranged->beginChangeGesture();
+        ranged->setValueNotifyingHost (normalised);
+        ranged->endChangeGesture();
+    }
+
+    state.state.setProperty ("presetName", presetName, nullptr);
+}
+
+void BrumeBoxProcessor::loadFactoryPreset (int index)
+{
+    if (! isPositiveAndBelow (index, (int) std::size (presets::factory)))
+        return;
+
+    std::map<String, float> values;
+    for (const auto& [id, value] : presets::factory[index].values)
+        values[String (id)] = value;
+
+    applyValues (values, String::fromUTF8 (presets::factory[index].name));
+}
+
+bool BrumeBoxProcessor::loadPresetFile (const File& file)
+{
+    const auto xml = parseXML (file);
+    if (xml == nullptr)
+        return false;
+
+    std::map<String, float> values;
+    for (auto* param : xml->getChildWithTagNameIterator ("PARAM"))
+        values[param->getStringAttribute ("id")] = (float) param->getDoubleAttribute ("value");
+
+    if (values.empty())
+        return false;
+
+    applyValues (values, xml->getStringAttribute ("presetName", file.getFileNameWithoutExtension()));
+    return true;
+}
+
+void BrumeBoxProcessor::loadPreset (const Preset& preset)
+{
+    if (preset.factoryIndex >= 0)
+        loadFactoryPreset (preset.factoryIndex);
+    else
+        loadPresetFile (preset.file);
+}
+
+File BrumeBoxProcessor::saveUserPreset (const String& name)
+{
+    const auto clean = File::createLegalFileName (name.trim());
+    if (clean.isEmpty())
+        return {};
+
+    XmlElement xml ("BRUMEBOXSTATE");
+    xml.setAttribute ("presetName", name.trim());
+    for (auto* p : getParameters())
+        if (auto* ranged = dynamic_cast<RangedAudioParameter*> (p))
+        {
+            auto* child = xml.createNewChildElement ("PARAM");
+            child->setAttribute ("id", ranged->getParameterID());
+            child->setAttribute ("value", (double) ranged->convertFrom0to1 (ranged->getValue()));
+        }
+
+    const auto file = userPresetFolder().getChildFile (clean + ".preset");
+    if (! file.getParentDirectory().createDirectory() || ! xml.writeTo (file))
+        return {};
+
+    state.state.setProperty ("presetName", name.trim(), nullptr);
+    return file;
 }
 
 void BrumeBoxProcessor::getStateInformation (MemoryBlock& dest)

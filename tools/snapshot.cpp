@@ -4,6 +4,7 @@
 //   brumebox_snapshot out.png [largeur hauteur] [--boost] [--tip x y]
 #include "../Source/PluginEditor.h"
 #include "../Source/PluginProcessor.h"
+#include "../Source/Presets.h"
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter();
 
@@ -123,8 +124,68 @@ struct Director
 };
 } // namespace
 
+/** Les presets sans fenêtre : chaque identifiant existe, enregistrer puis rouvrir rend les mêmes valeurs,
+    et un fichier .preset de spiff s'ouvre. */
+int selftest()
+{
+    int failures = 0;
+    auto check = [&failures] (bool ok, const juce::String& what)
+    {
+        std::printf ("%s  %s\n", ok ? "ok  " : "FAIL", what.toRawUTF8());
+        if (! ok) ++failures;
+    };
+
+    std::unique_ptr<onirique::BrumeBoxProcessor> p (static_cast<onirique::BrumeBoxProcessor*> (createPluginFilter()));
+
+    juce::StringArray unknown;
+    for (const auto& f : onirique::presets::factory)
+        for (const auto& [id, value] : f.values)
+            if (p->state.getParameter (id) == nullptr)
+                unknown.add (juce::String::fromUTF8 (f.name) + " : " + id);
+    check (unknown.isEmpty(), "les " + juce::String ((int) std::size (onirique::presets::factory))
+                                  + " presets d'usine n'utilisent que des parametres existants " + unknown.joinIntoString (", "));
+
+    p->loadFactoryPreset (3);   // Kick : attaque plus nette
+    const auto s = p->readSettings();
+    check (s.boost && std::abs (s.boostDepth - 4.5f) < 0.01f && s.bands[1].mode == 0 && std::abs (s.bands[1].freq - 120.0f) < 0.5f
+           && s.phase == bb::Phase::minimum && std::abs (s.cutDepth - 5.0f) < 0.01f,
+           "charger un preset d'usine : ses valeurs, et le reste par defaut (" + p->getPresetName() + ")");
+
+    const auto name = juce::String ("zz test ") + juce::String (juce::Random::getSystemRandom().nextInt (100000));
+    const auto file = p->saveUserPreset (name);
+    check (file.existsAsFile(), "enregistrer un preset : " + file.getFullPathName());
+    p->loadFactoryPreset (0);
+    const bool reopened = p->loadPresetFile (file);
+    const auto back = p->readSettings();
+    check (reopened && back.boost && std::abs (back.boostDepth - 4.5f) < 0.01f && p->getPresetName() == name,
+           "le rouvrir rend les memes reglages");
+    bool listed = false;
+    for (const auto& preset : p->listPresets())
+        listed = listed || preset.name == name;
+    check (listed, "il apparait dans la liste, sous MES PRESETS");
+    file.deleteFile();
+
+    const juce::File spiff ("/Library/Application Support/oeksound/spiff/Presets/full reset.preset");
+    if (spiff.existsAsFile())
+    {
+        const bool ok = p->loadPresetFile (spiff);
+        const auto v = p->readSettings();
+        check (ok && v.cutDepth < 0.01f && v.bands[1].on && std::abs (v.bands[2].freq - 1000.0f) < 1.0f,
+               "un fichier .preset de spiff s'ouvre (" + p->getPresetName() + ")");
+    }
+
+    std::printf (failures == 0 ? "\ntout passe\n" : "\n%d echec(s)\n", failures);
+    return failures == 0 ? 0 : 1;
+}
+
 int main (int argc, char** argv)
 {
+    if (argc > 1 && juce::String (argv[1]) == "--selftest")
+    {
+        const juce::ScopedJuceInitialiser_GUI gui;
+        return selftest();
+    }
+
     if (argc < 2)
     {
         std::printf ("usage : brumebox_snapshot out.png [largeur hauteur] [--boost] [--tip x y]\n");

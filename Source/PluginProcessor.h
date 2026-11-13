@@ -3,6 +3,8 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
+#include <map>
+
 #include "dsp/BrumeEngine.h"
 #include "License/LicenseGuard.h"
 
@@ -49,6 +51,30 @@ public:
     /** La bande écoutée, ou -1. Un état de l'interface, pas un paramètre (comme dans spiff). */
     std::atomic<int> listenBand { -1 };
 
+    //==============================================================================
+    // Presets : ceux d'usine (Presets.h), et ceux de l'utilisateur, des fichiers .preset dans
+    // Documents/Onirique/BrumeBox/Presets. Un fichier .preset ouvert à la main peut aussi venir
+    // d'ailleurs : tout fichier XML dont les <PARAM id="..." value="..."/> portent nos identifiants.
+    struct Preset
+    {
+        String category, name;
+        int factoryIndex = -1;   // -1 : un fichier
+        File file;
+    };
+
+    static File userPresetFolder();
+    std::vector<Preset> listPresets() const;
+
+    void loadFactoryPreset (int index);
+    bool loadPresetFile (const File&);
+    void loadPreset (const Preset&);
+
+    /** Enregistre l'état en cours sous ce nom dans le dossier utilisateur. Rend le fichier, ou rien. */
+    File saveUserPreset (const String& name);
+
+    /** Le nom du preset chargé en dernier (gardé avec le projet). */
+    String getPresetName() const { return state.state.getProperty ("presetName", String::fromUTF8 ("Par défaut")).toString(); }
+
     AudioProcessorValueTreeState state;
 
     // Licence ONIRIQUE : fiche « brumebox » sur CENTRAL, réservée aux fondateurs.
@@ -56,6 +82,9 @@ public:
 
 private:
     static AudioProcessorValueTreeState::ParameterLayout createLayout();
+
+    /** Chaque paramètre à sa valeur dans `values` (identifiant → valeur réelle), sinon à sa valeur par défaut. */
+    void applyValues (const std::map<String, float>& values, const String& presetName);
 
     bb::BrumeEngine engine;
 

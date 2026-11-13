@@ -128,6 +128,39 @@ BrumeBoxEditor::BrumeBoxEditor (BrumeBoxProcessor& p)
     choice (windowBox, "window length", "WINDOW");
     choice (phaseBox, "phase mode", "PHASE");
 
+    // Les presets.
+    for (auto* b : { &previousButton, &nextButton, &saveButton, &openButton })
+    {
+        b->getProperties().set ("plain", true);
+        addAndMakeVisible (*b);
+    }
+    previousButton.onClick = [this] { stepPreset (-1); };
+    nextButton.onClick = [this] { stepPreset (1); };
+    saveButton.onClick = [this] { beginSaving(); };
+    openButton.onClick = [this] { openPresetFile(); };
+
+    presetBox.onChange = [this]
+    {
+        const auto index = presetBox.getSelectedId() - 1;
+        if (isPositiveAndBelow (index, (int) presetList.size()))
+            processor.loadPreset (presetList[(size_t) index]);
+    };
+    addAndMakeVisible (presetBox);
+
+    // Le nom d'un preset à enregistrer se tape là où le nom s'affiche, sur le menu lui-même.
+    presetNameEditor.getProperties().set ("box", true);
+    presetNameEditor.setJustificationType (Justification::centredLeft);
+    presetNameEditor.setBorderSize ({ 0, 13, 0, 30 });
+    presetNameEditor.setEditable (true);
+    presetNameEditor.onTextChange = [this]
+    {
+        if (processor.saveUserPreset (presetNameEditor.getText()).existsAsFile())
+            refreshPresets();
+    };
+    presetNameEditor.onEditorHide = [this] { presetNameEditor.setVisible (false); };
+    addChildComponent (presetNameEditor);
+    refreshPresets();
+
     for (const auto& [button, id] : { std::pair { &deltaButton, "delta" }, { &bypassButton, "bypass" } })
     {
         button->setClickingTogglesState (true);
@@ -135,6 +168,11 @@ BrumeBoxEditor::BrumeBoxEditor (BrumeBoxProcessor& p)
         addAndMakeVisible (*button);
     }
 
+    describe ({ &previousButton }, fr ("Preset précédent."));
+    describe ({ &nextButton }, fr ("Preset suivant."));
+    describe ({ &presetBox }, fr ("Les presets : ceux d'usine par catégorie, puis les vôtres (Documents/Onirique/BrumeBox/Presets, rangés par sous-dossier)."));
+    describe ({ &saveButton }, fr ("Enregistre les réglages comme preset personnel : tapez son nom à la place du preset affiché, puis Entrée. Échap annule."));
+    describe ({ &openButton }, fr ("Ouvre un fichier .preset où qu'il soit. Les fichiers .preset de spiff s'ouvrent aussi : les paramètres portent les mêmes noms."));
     describe ({ &deltaButton }, fr ("Delta : la différence entre le son traité et l'original, pour entendre à quoi BrumeBox réagit. MIX mélange alors l'original et le delta."));
     describe ({ &bypassButton }, fr ("Bypass doux, pour comparer sans à-coup. Le calcul continue : pour l'économiser, désactivez le plugin dans l'hôte."));
     describe ({ &cutButton }, fr ("Cut : baisse les transitoires, seulement aux fréquences qui les composent."));
@@ -179,6 +217,10 @@ BrumeBoxEditor::~BrumeBoxEditor()
 //==============================================================================
 void BrumeBoxEditor::timerCallback()
 {
+    // Le nom du preset chargé, même s'il vient de l'hôte ou d'un fichier.
+    if (! presetNameEditor.isVisible() && presetBox.getText() != processor.getPresetName())
+        presetBox.setText (processor.getPresetName(), dontSendNotification);
+
     repaint (getLocalBounds().removeFromTop (kHeaderHeight));
     updateHoverTip();
 }
@@ -252,6 +294,67 @@ void BrumeBoxEditor::updateHoverTip()
     hoverTip.setVisible (true);
     hoverTip.toFront (false);
     hoverTip.repaint();
+}
+
+//==============================================================================
+void BrumeBoxEditor::refreshPresets()
+{
+    presetList = processor.listPresets();
+    presetBox.clear (dontSendNotification);
+
+    String category;
+    for (size_t i = 0; i < presetList.size(); ++i)
+    {
+        if (presetList[i].category != category)
+        {
+            category = presetList[i].category;
+            presetBox.addSectionHeading (category);
+        }
+        presetBox.addItem (presetList[i].name, (int) i + 1);
+    }
+
+    presetBox.setText (processor.getPresetName(), dontSendNotification);
+}
+
+void BrumeBoxEditor::stepPreset (int direction)
+{
+    if (presetList.empty())
+        return;
+
+    // À partir du preset affiché ; s'il n'est pas dans la liste, depuis le début.
+    int current = -1;
+    for (size_t i = 0; i < presetList.size(); ++i)
+        if (presetList[i].name == processor.getPresetName())
+            current = (int) i;
+
+    const auto count = (int) presetList.size();
+    const auto next = current < 0 ? (direction > 0 ? 0 : count - 1) : (current + direction + count) % count;
+    processor.loadPreset (presetList[(size_t) next]);
+    presetBox.setText (processor.getPresetName(), dontSendNotification);
+}
+
+void BrumeBoxEditor::beginSaving()
+{
+    presetNameEditor.setBounds (presetBox.getBounds());
+    presetNameEditor.setText (processor.getPresetName(), dontSendNotification);
+    presetNameEditor.setVisible (true);
+    presetNameEditor.toFront (true);
+    presetNameEditor.showEditor();
+    if (auto* editor = presetNameEditor.getCurrentTextEditor())
+        editor->selectAll();
+}
+
+void BrumeBoxEditor::openPresetFile()
+{
+    chooser = std::make_unique<FileChooser> (fr ("Ouvrir un preset"), BrumeBoxProcessor::userPresetFolder(), "*.preset;*.xml");
+    chooser->launchAsync (FileBrowserComponent::openMode | FileBrowserComponent::canSelectFiles, [this] (const FileChooser& fc)
+    {
+        const auto file = fc.getResult();
+        if (file.existsAsFile() && ! processor.loadPresetFile (file))
+            AlertWindow::showMessageBoxAsync (MessageBoxIconType::WarningIcon, "BRUMEBOX",
+                                              fr ("Ce fichier ne contient pas de réglages lisibles."));
+        presetBox.setText (processor.getPresetName(), dontSendNotification);
+    });
 }
 
 //==============================================================================
@@ -385,6 +488,21 @@ void BrumeBoxEditor::resized()
 
     if (licenseOverlay != nullptr)
         licenseOverlay->fit (getLocalBounds(), 1.0f, row.removeFromRight (licenseOverlay->pillWidth()), Justification::centredRight);
+    row.removeFromRight (18);
+
+    openButton.setBounds (row.removeFromRight (64));
+    row.removeFromRight (4);
+    saveButton.setBounds (row.removeFromRight (60));
+    row.removeFromRight (8);
+
+    // Le nom prend ce qui reste entre le titre et les boutons.
+    row.removeFromLeft (titleRight() + 62);
+    previousButton.setBounds (row.removeFromLeft (30));
+    row.removeFromLeft (4);
+    nextButton.setBounds (row.removeFromLeft (30));
+    row.removeFromLeft (6);
+    presetBox.setBounds (row);
+    presetNameEditor.setBounds (row);
 
     // Première colonne : cut / boost, depth en grand, puis la détection.
     auto first = bounds.removeFromLeft (kColumnWidth).reduced (14, 16);

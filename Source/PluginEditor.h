@@ -29,6 +29,9 @@ public:
 
     BrumeDisplay& getDisplay() noexcept { return display; }
 
+    /** Le menu des presets transformé en champ où taper le nom du preset à enregistrer (aussi pour les captures). */
+    void showSaveField() { beginSaving(); }
+
     /** Montre tout de suite, et garde, la description de ce qui est sous un point (pour les captures). */
     void pinDescription (Point<int> at);
 
@@ -68,8 +71,18 @@ private:
     BrumeBoxProcessor& processor;
     BrumeDisplay display;
 
-    // L'en-tête.
+    // L'en-tête : les presets, DELTA, BYPASS.
+    TextButton previousButton { "<" }, nextButton { ">" }, saveButton { "SAVE" }, openButton { "OPEN" };
+    ComboBox presetBox;
+    Label presetNameEditor;
+    std::vector<BrumeBoxProcessor::Preset> presetList;
+    std::unique_ptr<FileChooser> chooser;
     TextButton deltaButton { "DELTA" }, bypassButton { "BYPASS" };
+
+    void refreshPresets();
+    void stepPreset (int direction);
+    void beginSaving();
+    void openPresetFile();
 
     // Première colonne : cut ou boost, et la détection.
     TextButton cutButton { "CUT" }, boostButton { "BOOST" };
