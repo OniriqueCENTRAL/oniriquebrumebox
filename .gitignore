@@ -1,0 +1,9 @@
+build/
+build-*/
+JUCE/
+dist/
+out/
+*.log
+*.vst3
+*.component
+.DS_Store
