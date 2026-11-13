@@ -16,7 +16,8 @@ ligne ; la FFT est celle de ResoBox.
 |---|---|
 | Moteur (fenêtres, oversample, résolution, phase linéaire / minimale, stéréo, écoute de bande) | fait, testé hors ligne |
 | Plugin VST3 / AU, paramètres automatisables | compile sur Mac (universel arm64 + x86_64) |
-| Licence ONIRIQUE (`brumebox`) | branchée ; fiche CENTRAL « fondateurs seulement » |
+| Licence ONIRIQUE (`brumebox`) | branchée ; fiche CENTRAL « fondateurs seulement », démo et image en ligne |
+| Presets | 28 d'usine, personnels, ouverture de fichiers |
 | Interface | faite (`snapshot.png`), vérifiée sur capture (`brumebox_snapshot`) |
 | Version Windows | non compilée |
 | Écoute dans un DAW | **pas encore faite** |
@@ -54,7 +55,23 @@ l'effet sans DAW.
 Laisser le curseur deux secondes sur un contrôle affiche sa description, en français.
 
 Capture sans hôte : `cmake --build build --target brumebox_snapshot`, puis
-`build/brumebox_snapshot snapshot.png [largeur hauteur] [--boost] [--tip x y]`.
+`build/brumebox_snapshot snapshot.png [largeur hauteur] [--boost] [--closed] [--scale 2] [--tip x y]`.
+`build/brumebox_snapshot --selftest` vérifie les presets (identifiants, enregistrer puis rouvrir, fichier spiff).
+
+## Presets
+
+28 presets d'usine ONIRIQUE (`Source/Presets.h`), par catégorie : divers, batterie, voix, basse, guitare,
+synthés et claviers, image, master. Les presets personnels sont des fichiers `.preset` dans
+`Documents/Onirique/BrumeBox/Presets` (rangés par sous-dossier). OPEN ouvre tout fichier XML aux
+`<PARAM id="..." value="..."/>` portant nos identifiants, donc aussi un `.preset` de spiff.
+
+## Visuels pour CENTRAL
+
+- `visuels/fiche-brumebox.png` (et `-boost`) : l'image de la fiche, l'interface au travail, en 2x.
+  `build/brumebox_snapshot visuels/fiche-brumebox.png 1300 740 --closed --scale 2`
+- La démo interactive : `cmake --build build --target brumebox_demo`, puis `build/brumebox_demo visuels/demo`
+  (base.png + demo.json, format onirique-demo-v1 : le travail d'onirique-probe, fait sur Mac). À rattacher
+  par `deploy/attach-demo.mjs` du dépôt ONIRIQUE CENTRAL.
 
 ## Paramètres
 

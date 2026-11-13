@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.22)
 
-project(OniriqueBrumeBox VERSION 1.0.1 LANGUAGES C CXX)
+project(OniriqueBrumeBox VERSION 1.0.2 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -108,3 +108,9 @@ add_executable(brumebox_snapshot EXCLUDE_FROM_ALL tools/snapshot.cpp)
 target_include_directories(brumebox_snapshot PRIVATE $<TARGET_PROPERTY:OniriqueBrumeBox,INCLUDE_DIRECTORIES>)
 target_compile_definitions(brumebox_snapshot PRIVATE $<TARGET_PROPERTY:OniriqueBrumeBox,COMPILE_DEFINITIONS>)
 target_link_libraries(brumebox_snapshot PRIVATE OniriqueBrumeBox brumebox_core BrumeBoxAssets)
+
+# La démo interactive pour ONIRIQUE CENTRAL (le travail d'onirique-probe, sur Mac). Construite à la demande.
+add_executable(brumebox_demo EXCLUDE_FROM_ALL tools/demo.cpp)
+target_include_directories(brumebox_demo PRIVATE $<TARGET_PROPERTY:OniriqueBrumeBox,INCLUDE_DIRECTORIES>)
+target_compile_definitions(brumebox_demo PRIVATE $<TARGET_PROPERTY:OniriqueBrumeBox,COMPILE_DEFINITIONS>)
+target_link_libraries(brumebox_demo PRIVATE OniriqueBrumeBox brumebox_core BrumeBoxAssets)

@@ -1,7 +1,8 @@
 // Rend l'interface dans un PNG, sans hôte, avec une boucle de batterie et une nappe qui la traversent,
 // pour regarder un changement d'interface tout droit sorti de la compilation.
 //
-//   brumebox_snapshot out.png [largeur hauteur] [--boost] [--tip x y]
+//   brumebox_snapshot out.png [largeur hauteur] [--boost] [--closed] [--scale 2] [--tip x y]
+//   brumebox_snapshot --selftest
 #include "../Source/PluginEditor.h"
 #include "../Source/PluginProcessor.h"
 #include "../Source/Presets.h"
@@ -38,8 +39,8 @@ float sampleAt (int n)
 
 struct Director
 {
-    Director (juce::File destination, int width, int height, bool boost, juce::Point<int> tip)
-        : file (std::move (destination)), tipAt (tip)
+    Director (juce::File destination, int width, int height, bool boost, juce::Point<int> tip, float scaleToUse, bool closed)
+        : file (std::move (destination)), tipAt (tip), scale (scaleToUse)
     {
         processor.reset (static_cast<onirique::BrumeBoxProcessor*> (createPluginFilter()));
         processor->setPlayConfigDetails (2, 2, kSr, kBlock);
@@ -63,12 +64,13 @@ struct Director
         set ("band3 q", 1.4f);
         set ("band4 on", 1.0f);
         set ("band4 freq", 14000.0f);
+        processor->state.state.setProperty ("presetName", juce::String::fromUTF8 ("Batterie : démo"), nullptr);
 
         editor.reset (processor->createEditor());
         editor->setSize (width, height);
 
         if (auto* e = dynamic_cast<onirique::BrumeBoxEditor*> (editor.get()))
-            e->getDisplay().select (1);
+            e->getDisplay().select (closed ? -1 : 1);
     }
 
     void set (const juce::String& id, float value)
@@ -106,7 +108,7 @@ struct Director
             if (auto* e = dynamic_cast<onirique::BrumeBoxEditor*> (editor.get()))
                 e->pinDescription (tipAt);
 
-        const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, 1.0f);
+        const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, scale);
         file.deleteFile();
         if (auto stream = file.createOutputStream())
             juce::PNGImageFormat().writeImageToStream (image, *stream);
@@ -118,6 +120,7 @@ struct Director
 
     juce::File file;
     juce::Point<int> tipAt;
+    float scale = 1.0f;
     std::unique_ptr<onirique::BrumeBoxProcessor> processor;
     std::unique_ptr<juce::AudioProcessorEditor> editor;
     int position = 0, ticks = 0;
@@ -195,19 +198,22 @@ int main (int argc, char** argv)
     const juce::ScopedJuceInitialiser_GUI gui;
 
     int width = 1260, height = 720;
-    bool boost = false;
+    bool boost = false, closed = false;
+    float scale = 1.0f;
     juce::Point<int> tip { -1, -1 };
 
     for (int i = 2; i < argc; ++i)
     {
         const juce::String a (argv[i]);
         if (a == "--boost") boost = true;
+        else if (a == "--closed") closed = true;
+        else if (a == "--scale" && i + 1 < argc) scale = (float) atof (argv[++i]);
         else if (a == "--tip" && i + 2 < argc) { tip = { atoi (argv[i + 1]), atoi (argv[i + 2]) }; i += 2; }
         else if (i + 1 < argc && a.containsOnly ("0123456789")) { width = a.getIntValue(); height = atoi (argv[++i]); }
     }
 
     const auto file = juce::File::getCurrentWorkingDirectory().getChildFile (argv[1]);
-    Director director (file, width, height, boost, tip);
+    Director director (file, width, height, boost, tip, scale, closed);
     while (! director.tick()) {}
 
     std::printf ("%s\n", file.getFullPathName().toRawUTF8());
