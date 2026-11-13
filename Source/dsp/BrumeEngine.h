@@ -18,6 +18,20 @@ constexpr int kMaxModes = 12;
 enum class Chord { octaves, fifths, minor9, major7, sus2, lydian };
 constexpr int kNumChords = 6;
 
+/** Les bandes de sensibilité : où la détection travaille plus, ou moins. */
+constexpr int kNumBands = 5;
+enum class BandShape { bell, lowShelf, highShelf };
+constexpr int kNumBandShapes = 3;
+
+struct Band
+{
+    bool on = true;
+    float freq = 1000.0f;
+    float gainDb = 0.0f;    // -12..+12 : + rend la détection plus sensible ici
+    float q = 1.0f;
+    BandShape shape = BandShape::bell;
+};
+
 struct Settings
 {
     // Détection des transitoires, fréquence par fréquence (le principe de spiff).
@@ -25,8 +39,11 @@ struct Settings
     float releaseMs = 80.0f;    // retour de chaque bin après une attaque
     float tilt = 0.0f;          // -1..1 : graves ou aigus qui retombent plus lentement
 
+    Band bands[kNumBands];
+
     // Ce qu'on fait des attaques détectées.
-    float punchDb = 0.0f;       // -24..+12 : les attaques elles-mêmes, coupées ou poussées
+    bool boost = false;         // couper (cut) ou pousser (boost) les attaques
+    float depth = 0.0f;         // 0..10 : jusqu'à -24 dB en cut, +12 dB en boost
     float reso = 0.5f;          // 0..1 : les attaques frappent une boîte de résonateurs accordés
     float decayS = 2.0f;        // durée de résonance (T60)
     int root = 9;               // 0 = do ... 9 = la
@@ -40,7 +57,18 @@ struct Settings
 
     float mix = 1.0f;
     float outDb = 0.0f;
+    bool delta = false;         // n'écouter que ce qui change
+    bool bypass = false;        // le son d'origine, latence comprise
+
+    /** Le gain appliqué aux attaques, en dB. */
+    float punchDb() const noexcept { return boost ? depth * 1.2f : -depth * 2.4f; }
 };
+
+/** La hauteur d'une bande à une fréquence, en dB. */
+float bandDb (const Band&, float hz) noexcept;
+
+/** La courbe de sensibilité, toutes bandes allumées comprises, en dB. */
+float sensitivityDb (const Settings&, float hz) noexcept;
 
 /** Sépare chaque fréquence en « attaque » et « reste », comme spiff, puis :
     - les attaques frappent des résonateurs accordés sur un accord,
@@ -63,6 +91,15 @@ public:
 
     // Pour les tests : part moyenne des bins vus comme attaque à la dernière trame.
     float lastTransientShare() const noexcept { return transientShare; }
+
+    // Ce que l'interface dessine, écrit une fois par trame sur le thread audio.
+    int getDisplayBins() const noexcept         { return bins; }
+    double getDisplayBinHz() const noexcept     { return sampleRate / (double) fftSize; }
+    uint32_t getFrameCount() const noexcept     { return frameCount; }
+    const float* getInputDb() const noexcept    { return visIn.data(); }
+    const float* getEnvelope() const noexcept   { return envelope.data(); }
+    int getNumModes() const noexcept            { return numModes; }
+    float getModeHz (int i) const noexcept      { return modeHz[i]; }
 
 private:
     void processFrame() noexcept;
@@ -91,13 +128,15 @@ private:
     std::vector<std::complex<float>> spec[kMaxChannels], work;
 
     // Détection, liée entre les canaux.
-    std::vector<float> avgDb, novelty, envelope, releaseCoef;
+    std::vector<float> avgDb, novelty, envelope, releaseCoef, weightDb, visIn;
+    uint32_t frameCount = 0;
 
     // Brume.
     std::vector<float> hazeMag[kMaxChannels], hazePhase[kMaxChannels];
 
     // Résonateurs.
     Mode modes[kMaxModes];
+    float modeHz[kMaxModes] {};
     int numModes = 0;
     bool modesDirty = true;
     Settings modeKey;

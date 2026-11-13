@@ -58,9 +58,18 @@ juce_add_plugin(OniriqueBrumeBox
     NEEDS_MIDI_INPUT FALSE
     NEEDS_MIDI_OUTPUT FALSE
     VST3_CATEGORIES Fx Reverb Dynamics
+    # Pour la molette et la saisie des valeurs.
+    EDITOR_WANTS_KEYBOARD_FOCUS TRUE
     COPY_PLUGIN_AFTER_BUILD ${BRUMEBOX_COPY_AFTER_BUILD})
 
-target_sources(OniriqueBrumeBox PRIVATE Source/PluginProcessor.cpp)
+# Le sigil ONIRIQUE, comme dans l'en-tête du site.
+juce_add_binary_data(BrumeBoxAssets SOURCES Resources/sigil.png)
+
+target_sources(OniriqueBrumeBox PRIVATE
+    Source/PluginProcessor.cpp
+    Source/PluginEditor.cpp
+    Source/ui/BrumeDisplay.cpp
+    Source/ui/Theme.cpp)
 
 # Licence ONIRIQUE (copie de plugin-license/ d'ONIRIQUE CENTRAL). Voir License/README.md.
 include(License/OniriqueLicense.cmake)
@@ -80,6 +89,7 @@ target_compile_definitions(OniriqueBrumeBox PUBLIC
 target_link_libraries(OniriqueBrumeBox
     PRIVATE
         brumebox_core
+        BrumeBoxAssets
         juce::juce_audio_utils
         juce::juce_audio_processors
     PUBLIC
@@ -92,3 +102,9 @@ enable_testing()
 add_executable(test_engine tests/test_engine.cpp)
 target_link_libraries(test_engine PRIVATE brumebox_core)
 add_test(NAME engine COMMAND test_engine ${CMAKE_CURRENT_BINARY_DIR})
+
+# Un outil de développement, pas le produit : rend l'interface dans un PNG, sans hôte.
+add_executable(brumebox_snapshot EXCLUDE_FROM_ALL tools/snapshot.cpp)
+target_include_directories(brumebox_snapshot PRIVATE $<TARGET_PROPERTY:OniriqueBrumeBox,INCLUDE_DIRECTORIES>)
+target_compile_definitions(brumebox_snapshot PRIVATE $<TARGET_PROPERTY:OniriqueBrumeBox,COMPILE_DEFINITIONS>)
+target_link_libraries(brumebox_snapshot PRIVATE OniriqueBrumeBox brumebox_core BrumeBoxAssets)

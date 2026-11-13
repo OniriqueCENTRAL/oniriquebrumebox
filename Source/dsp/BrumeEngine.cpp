@@ -31,6 +31,35 @@ namespace
     }
 }
 
+float bandDb (const Band& b, float hz) noexcept
+{
+    if (! b.on || b.gainDb == 0.0f)
+        return 0.0f;
+
+    const float octaves = std::log2 (std::max (1.0f, hz) / std::max (1.0f, b.freq));
+    const float q = std::clamp (b.q, 0.1f, 10.0f);
+
+    switch (b.shape)
+    {
+        case BandShape::lowShelf:  return b.gainDb / (1.0f + std::exp (octaves * 4.0f * q));
+        case BandShape::highShelf: return b.gainDb / (1.0f + std::exp (-octaves * 4.0f * q));
+        case BandShape::bell:
+        default:
+        {
+            const float width = 0.5f / q;   // en octaves
+            return b.gainDb * std::exp (-0.5f * (octaves * octaves) / (width * width));
+        }
+    }
+}
+
+float sensitivityDb (const Settings& s, float hz) noexcept
+{
+    float db = 0.0f;
+    for (const auto& b : s.bands)
+        db += bandDb (b, hz);
+    return db;
+}
+
 void BrumeEngine::prepare (double sr, int channels)
 {
     sampleRate = sr;
@@ -69,6 +98,8 @@ void BrumeEngine::prepare (double sr, int channels)
     novelty.assign ((size_t) bins, 0.0f);
     envelope.assign ((size_t) bins, 0.0f);
     releaseCoef.assign ((size_t) bins, 0.0f);
+    weightDb.assign ((size_t) bins, 0.0f);
+    visIn.assign ((size_t) bins, -120.0f);
 
     modesDirty = true;
     setSettings (settings);
@@ -116,6 +147,7 @@ void BrumeEngine::setSettings (const Settings& s) noexcept
             const float octaves = std::log2 (hz / 1000.0f);
             const float t = releaseS * std::pow (2.0f, 0.5f * s.tilt * octaves);
             releaseCoef[(size_t) k] = std::exp (-hopSeconds / std::max (0.001f, t));
+            weightDb[(size_t) k] = sensitivityDb (s, hz);
         }
     }
 }
@@ -151,6 +183,7 @@ void BrumeEngine::updateModes() noexcept
             const float theta = kTwoPi * hz / (float) sampleRate;
             const float thetaR = theta * std::pow (2.0f, 4.0f / 1200.0f);   // +4 cents à droite
 
+            modeHz[numModes] = hz;
             auto& m = modes[numModes++];
             m.a1 = 2.0f * r * std::cos (theta);
             m.a1R = 2.0f * r * std::cos (thetaR);
@@ -198,8 +231,13 @@ void BrumeEngine::processFrame() noexcept
         m /= (float) numCh;
 
         const float db = 20.0f * std::log10 (m + 1.0e-9f);
-        novelty[(size_t) k] = db > -100.0f ? std::max (0.0f, db - avgDb[(size_t) k]) : 0.0f;
+        // Une bande au-dessus de 0 abaisse le seuil d'autant de dB (voir plus bas pour en dessous).
+        novelty[(size_t) k] = db > -100.0f ? std::max (0.0f, db - avgDb[(size_t) k] + std::max (0.0f, weightDb[(size_t) k])) : 0.0f;
         avgDb[(size_t) k] += (db - avgDb[(size_t) k]) * follow;
+
+        // Pour l'écran : le spectre d'entrée, en dB par rapport à une sinusoïde pleine échelle.
+        const float shown = db - 20.0f * std::log10 ((float) fftSize * 0.25f);
+        visIn[(size_t) k] += (shown - visIn[(size_t) k]) * (shown > visIn[(size_t) k] ? 0.6f : 0.15f);
     }
 
     const float threshold = 14.0f - 1.2f * std::clamp (s.sensitivity, 0.0f, 10.0f);  // 14 dB .. 2 dB
@@ -218,11 +256,14 @@ void BrumeEngine::processFrame() noexcept
             weight += w;
         }
         const float n = sum / weight;
-        const float t = std::clamp ((n - threshold) / 6.0f, 0.0f, 1.0f);
+        // Une bande en dessous de 0 retire de la part traitée : plus rien à -12 dB.
+        const float keep = std::clamp (1.0f + std::min (0.0f, weightDb[(size_t) k]) / 12.0f, 0.0f, 1.0f);
+        const float t = keep * std::clamp ((n - threshold) / 6.0f, 0.0f, 1.0f);
         envelope[(size_t) k] = std::max (t, envelope[(size_t) k] * releaseCoef[(size_t) k]);
         shareSum += envelope[(size_t) k];
     }
     transientShare = shareSum / (float) bins;
+    ++frameCount;
 
     // 3. Séparation, brume, et retour au temps.
     const float hazeDecay = std::exp (-kLn1000 * hopSeconds / std::max (0.1f, s.hazeS));
@@ -294,7 +335,8 @@ void BrumeEngine::process (float* const* io, int channels, int numSamples) noexc
         updateModes();
 
     const int chs = std::min (channels, numCh);
-    const float punch = dbToGain (std::clamp (settings.punchDb, -60.0f, 24.0f));
+    const float punch = dbToGain (std::clamp (settings.punchDb(), -60.0f, 24.0f));
+    const bool delta = settings.delta, bypass = settings.bypass;
     const float resoGain = 4.0f * std::clamp (settings.reso, 0.0f, 1.0f);
     const float mix = std::clamp (settings.mix, 0.0f, 1.0f);
     const float out = dbToGain (settings.outDb);
@@ -328,7 +370,8 @@ void BrumeEngine::process (float* const* io, int channels, int numSamples) noexc
             }
 
             const float wet = r + t * punch + std::tanh (reso * resoGain);
-            io[ch][n] = (dry * (1.0f - mix) + wet * mix) * out;
+            const float processed = (dry * (1.0f - mix) + wet * mix) * out;
+            io[ch][n] = bypass ? dry : (delta ? processed - dry : processed);
         }
 
         // Un canal en trop dans le bloc passe sans traitement.

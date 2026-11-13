@@ -19,7 +19,7 @@ et se teste hors ligne ; la FFT est celle de ResoBox.
 | Moteur (STFT 2048 / hop 512, détection, résonateurs, brume) | fait, testé hors ligne |
 | Plugin VST3 / AU, paramètres automatisables | compile sur Mac (universel arm64 + x86_64) |
 | Licence ONIRIQUE (`brumebox`) | branchée ; fiche CENTRAL « fondateurs seulement », 1.0.0 Mac en ligne |
-| Interface | générique JUCE pour l'instant, avec la pastille de licence |
+| Interface | faite (`snapshot.png`), vérifiée sur capture (`brumebox_snapshot`) |
 | Version Windows | non compilée |
 | Écoute dans un DAW | **pas encore faite** |
 
@@ -36,6 +36,23 @@ ctest --test-dir build --output-on-failure
 Le test écrit `build/brumebox_sec.wav` et `build/brumebox_reve.wav` pour écouter
 l'effet sans DAW.
 
+## Interface
+
+![BrumeBox](snapshot.png)
+
+- **En-tête** : la pastille de licence, DELTA (n'écouter que ce qui change), BYPASS (latence gardée).
+- **Première colonne — les attaques** : CUT / BOOST, DEPTH, puis la détection (SENSIBILITÉ, RETOUR, TILT) et MIX.
+- **Deuxième colonne — ce qui en naît** : la note et l'accord, RÉSO, sa DURÉE et son ÉCLAT ; puis la BRUME, sa DURÉE et le FLOU ; OUT.
+- **L'écran** : le spectre qui entre ; en rouge ce qui est coupé des attaques (en violet s'il est poussé) ;
+  une étoile par note de l'accord ; la courbe de sensibilité et ses cinq bandes. Un point se glisse
+  (fréquence et sensibilité), la molette règle sa largeur, un double clic l'éteint ; un clic l'ouvre dans
+  son panneau (forme, FREQ, SENS, Q). Une bande à −12 dB ne laisse plus rien traiter à cet endroit.
+
+Laisser le curseur deux secondes sur un contrôle affiche sa description, en français.
+
+Capture sans hôte : `cmake --build build --target brumebox_snapshot`, puis
+`build/brumebox_snapshot snapshot.png [largeur hauteur] [--boost] [--tip x y]`.
+
 ## Réglages
 
 | Réglage | Rôle |
@@ -43,7 +60,8 @@ l'effet sans DAW.
 | Sensibilité | 0..10 : seuil de détection, de 14 dB à 2 dB au-dessus de la moyenne du bin |
 | Retour | temps de retour de chaque bin après une attaque |
 | Tilt | aigus (> 0) ou graves (< 0) qui retombent plus lentement |
-| Attaque | gain des attaques détectées (−24 à +12 dB) |
+| Cut / Boost, Depth | les attaques détectées baissées (jusqu'à −24 dB) ou poussées (jusqu'à +12 dB) |
+| Bandes 1 à 5 | où la détection travaille plus (+) ou moins (−) ; forme, fréquence, sensibilité, Q |
 | Résonance | quantité de résonateurs frappés par les attaques |
 | Durée reso | T60 des résonateurs |
 | Note / Accord | accord des 12 modes (octaves, quintes, mineur 9, majeur 7, sus2, lydien) |

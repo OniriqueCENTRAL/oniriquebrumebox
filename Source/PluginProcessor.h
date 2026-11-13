@@ -6,7 +6,11 @@
 #include "dsp/BrumeEngine.h"
 #include "License/LicenseGuard.h"
 
-class BrumeBoxProcessor : public juce::AudioProcessor
+namespace onirique
+{
+using namespace juce;
+
+class BrumeBoxProcessor : public AudioProcessor
 {
 public:
     BrumeBoxProcessor();
@@ -14,13 +18,13 @@ public:
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
     bool isBusesLayoutSupported (const BusesLayout&) const override;
-    void processBlock (juce::AudioBuffer<float>&, juce::MidiBuffer&) override;
+    void processBlock (AudioBuffer<float>&, MidiBuffer&) override;
     using AudioProcessor::processBlock;
 
-    juce::AudioProcessorEditor* createEditor() override;
+    AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
 
-    const juce::String getName() const override { return JucePlugin_Name; }
+    const String getName() const override { return JucePlugin_Name; }
     bool acceptsMidi() const override { return false; }
     bool producesMidi() const override { return false; }
     double getTailLengthSeconds() const override { return 20.0; }
@@ -28,23 +32,30 @@ public:
     int getNumPrograms() override { return 1; }
     int getCurrentProgram() override { return 0; }
     void setCurrentProgram (int) override {}
-    const juce::String getProgramName (int) override { return {}; }
-    void changeProgramName (int, const juce::String&) override {}
+    const String getProgramName (int) override { return {}; }
+    void changeProgramName (int, const String&) override {}
 
-    void getStateInformation (juce::MemoryBlock&) override;
+    void getStateInformation (MemoryBlock&) override;
     void setStateInformation (const void*, int) override;
 
-    juce::AudioProcessorValueTreeState state;
+    /** Les réglages tels que les paramètres les donnent (aussi pour l'écran). */
+    bb::Settings readSettings() const;
 
-    // Licence ONIRIQUE. Le plugin « brumebox » reste non publié dans ONIRIQUE CENTRAL : seuls les
-    // comptes de l'équipe (fondateurs) avec « Mes licences » activé y ont droit et le téléchargent.
-    onirique::license::Guard license { "brumebox" };
+    const bb::BrumeEngine& getEngine() const noexcept { return engine; }
+
+    static String bandId (int band, const char* what) { return "b" + String (band) + "_" + what; }
+
+    AudioProcessorValueTreeState state;
+
+    // Licence ONIRIQUE : fiche « brumebox » sur CENTRAL, réservée aux fondateurs.
+    license::Guard license { "brumebox" };
 
 private:
-    static juce::AudioProcessorValueTreeState::ParameterLayout createLayout();
-    bb::Settings readSettings() const;
+    static AudioProcessorValueTreeState::ParameterLayout createLayout();
 
     bb::BrumeEngine engine;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BrumeBoxProcessor)
 };
+
+} // namespace onirique

@@ -113,7 +113,7 @@ int main (int argc, char** argv)
     // 1. Neutre : attaques + reste = le signal, retardé de la latence.
     {
         bb::Settings s;
-        s.punchDb = 0; s.reso = 0; s.haze = 0; s.blur = 0;
+        s.depth = 0; s.reso = 0; s.haze = 0; s.blur = 0;
         const auto out = run (s, in, hits);
         double err = 0, ref = 0;
         for (size_t i = (size_t) latency * 2; i < in.size(); ++i)
@@ -134,7 +134,7 @@ int main (int argc, char** argv)
     // 2. Attaques coupées : moins d'énergie autour des frappes.
     {
         bb::Settings s;
-        s.punchDb = -24; s.reso = 0; s.haze = 0; s.blur = 0;
+        s.boost = false; s.depth = 10; s.reso = 0; s.haze = 0; s.blur = 0;
         // Les frappes seules : avec la note, elle domine l'energie mesuree.
         std::vector<int> h2;
         const auto clicks = makeSignal ((int) (kSr * 4.0), h2, 0.0f);
@@ -155,7 +155,7 @@ int main (int argc, char** argv)
     // 3. Le réglage onirique : stable, borné, et une traîne après la fin du son.
     {
         bb::Settings s;
-        s.punchDb = -6; s.reso = 0.8f; s.decayS = 4; s.haze = 0.6f; s.hazeS = 6; s.blur = 0.7f;
+        s.depth = 2.5f; s.reso = 0.8f; s.decayS = 4; s.haze = 0.6f; s.hazeS = 6; s.blur = 0.7f;
         auto silent = in;
         silent.resize (silent.size() + (size_t) (kSr * 3), 0.0f);
         const auto out = run (s, silent, hits);
@@ -185,6 +185,34 @@ int main (int argc, char** argv)
         writeWav (dir + "/brumebox_reve.wav", out.l, out.r);
         auto dryL = in; dryL.resize (out.l.size(), 0.0f);
         writeWav (dir + "/brumebox_sec.wav", dryL, dryL);
+    }
+
+    // 4. Une bande à -12 dB sur tout le spectre fait taire la détection.
+    {
+        bb::Settings s;
+        s.depth = 0; s.reso = 0; s.haze = 0; s.blur = 0;
+        s.bands[0] = { true, 1000.0f, -12.0f, 0.1f, bb::BandShape::lowShelf };
+        s.bands[1] = { true, 1000.0f, -12.0f, 0.1f, bb::BandShape::highShelf };
+        const auto out = run (s, in, hits);
+        std::printf ("      part d'attaque avec bandes a -12 dB : %.3f\n", mean (out.shareAtHit));
+        check (mean (out.shareAtHit) < 0.2f, "les bandes de sensibilite pesent sur la detection");
+    }
+
+    // 5. Bypass : le son d'origine retardé ; delta : seulement ce qui change (rien en neutre).
+    {
+        bb::Settings s;
+        s.bypass = true; s.depth = 10; s.reso = 1; s.haze = 1;
+        const auto by = run (s, in, hits);
+        bool same = true;
+        for (size_t i = (size_t) latency; i < in.size(); ++i) same = same && by.l[i] == in[i - (size_t) latency];
+        check (same, "bypass : le son d'origine, a la latence pres");
+
+        bb::Settings d;
+        d.delta = true; d.depth = 0; d.reso = 0; d.haze = 0; d.blur = 0;
+        const auto de = run (d, in, hits);
+        float peak = 0;
+        for (size_t i = (size_t) latency * 2; i < in.size(); ++i) peak = std::max (peak, std::abs (de.l[i]));
+        check (peak < 1.0e-3f, "delta en reglages neutres : presque rien");
     }
 
     std::printf (failures == 0 ? "\ntout passe\n" : "\n%d echec(s)\n", failures);
