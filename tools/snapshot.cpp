@@ -44,20 +44,24 @@ struct Director
         processor->setPlayConfigDetails (2, 2, kSr, kBlock);
         processor->prepareToPlay (kSr, kBlock);
 
-        set ("depth", 6.4f);
-        set ("boost", boost ? 1.0f : 0.0f);
-        set ("sensitivity", 6.0f);
-        set ("b1_freq", 330.0f);
-        set ("b1_gain", -5.0f);
-        set ("b2_freq", 2000.0f);
-        set ("b2_gain", 7.0f);
-        set ("b2_q", 0.8f);
-        set ("b3_freq", 6200.0f);
-        set ("b3_gain", 9.0f);
-        set ("b3_q", 1.6f);
-        set ("b4_gain", -9.0f);
-        set ("reso", 0.7f);
-        set ("haze", 0.45f);
+        set ("gain mode", boost ? 1.0f : 0.0f);
+        set ("cut depth", 6.4f);
+        set ("boost depth", 5.5f);
+        set ("sensitivity", 4.7f);
+        set ("decay", 5.6f);
+        set ("decay lf/hf", 3.9f);
+        set ("band0 on", 1.0f);
+        set ("band0 freq", 35.0f);
+        set ("band1 freq", 317.0f);
+        set ("band1 sens", -7.3f);
+        set ("band1 q", 0.4f);
+        set ("band2 freq", 1400.0f);
+        set ("band2 sens", 10.0f);
+        set ("band3 freq", 6200.0f);
+        set ("band3 sens", 12.0f);
+        set ("band3 q", 1.4f);
+        set ("band4 on", 1.0f);
+        set ("band4 freq", 14000.0f);
 
         editor.reset (processor->createEditor());
         editor->setSize (width, height);

@@ -43,7 +43,11 @@ public:
 
     const bb::BrumeEngine& getEngine() const noexcept { return engine; }
 
-    static String bandId (int band, const char* what) { return "b" + String (band) + "_" + what; }
+    /** Les identifiants des paramètres : les mêmes noms que spiff (« band2 freq », « decay lf/hf »...). */
+    static String bandId (int band, const char* what) { return "band" + String (band) + " " + what; }
+
+    /** La bande écoutée, ou -1. Un état de l'interface, pas un paramètre (comme dans spiff). */
+    std::atomic<int> listenBand { -1 };
 
     AudioProcessorValueTreeState state;
 

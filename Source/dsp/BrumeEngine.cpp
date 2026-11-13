@@ -1,4 +1,4 @@
-// Onirique BrumeBox — moteur spectral
+// Onirique BrumeBox — moteur : processeur de transitoires spectral
 #include "BrumeEngine.h"
 
 #include <algorithm>
@@ -9,100 +9,186 @@ namespace bb
 
 namespace
 {
-    constexpr float kPi = 3.14159265358979f;
     constexpr float kTwoPi = 6.28318530717959f;
-    constexpr float kLn1000 = 6.90775527898f;   // T60 : -60 dB
+    constexpr float kLn10Over20 = 0.115129254649702f;
 
-    float dbToGain (float db) noexcept { return std::pow (10.0f, db / 20.0f); }
-
-    // Les intervalles de chaque accord, en demi-tons au-dessus de la fondamentale.
-    // Ils sont répétés à l'octave jusqu'à remplir les modes.
-    const std::vector<int>& chordIntervals (Chord c)
+    int baseFrame (Window w) noexcept
     {
-        static const std::vector<int> tables[kNumChords] = {
-            { 0 },                 // octaves
-            { 0, 7 },              // quintes
-            { 0, 3, 7, 10, 14 },   // mineur 9
-            { 0, 4, 7, 11 },       // majeur 7
-            { 0, 2, 7 },           // sus2
-            { 0, 4, 6, 7, 11 },    // lydien
-        };
-        return tables[std::clamp ((int) c, 0, kNumChords - 1)];
+        switch (w)
+        {
+            case Window::shortWindow: return 1024;
+            case Window::longWindow:  return 4096;
+            case Window::mediumWindow:
+            default:                  return 2048;
+        }
+    }
+
+    int scaleFor (double sr) noexcept { return sr >= 176400.0 ? 4 : (sr >= 88200.0 ? 2 : 1); }
+
+    /** Réponse d'un coupe-bas (ou coupe-haut avec le rapport inversé), de 0 à 1. */
+    float cutResponse (float ratio, int slopeIndex) noexcept
+    {
+        const float order = kCutSlopes[std::clamp (slopeIndex, 0, 3)] / 6.0f;
+        return 1.0f / std::sqrt (1.0f + std::pow (std::max (1.0e-6f, ratio), 2.0f * order));
+    }
+
+    float octavesFrom (float hz, float centre) noexcept
+    {
+        return std::log2 (std::max (1.0f, hz) / std::max (1.0f, centre));
+    }
+
+    /** La forme d'une bande 1 à 3, de 0 à 1. */
+    float bandShape (const Band& b, float hz) noexcept
+    {
+        const float oct = octavesFrom (hz, b.freq);
+        const float q = std::clamp (b.q, 0.05f, 20.0f);
+
+        switch ((BandMode) std::clamp (b.mode, 0, kNumBandModes - 1))
+        {
+            case BandMode::lowShelf:  return 1.0f / (1.0f + std::exp (oct * 4.0f * q));
+            case BandMode::highShelf: return 1.0f / (1.0f + std::exp (-oct * 4.0f * q));
+            case BandMode::tilt:      return 1.0f;
+            case BandMode::bell:
+            default:
+            {
+                const float width = 0.5f / q;
+                return std::exp (-0.5f * (oct * oct) / (width * width));
+            }
+        }
     }
 }
 
-float bandDb (const Band& b, float hz) noexcept
+Settings defaultSettings()
 {
-    if (! b.on || b.gainDb == 0.0f)
+    Settings s;
+    s.bands[0] = { false, 20.0f, 0.0f, 0.7f, 1 };
+    s.bands[1] = { true, 100.0f, 0.0f, 0.7f, (int) BandMode::bell };
+    s.bands[2] = { true, 1000.0f, 0.0f, 0.7f, (int) BandMode::bell };
+    s.bands[3] = { true, 10000.0f, 0.0f, 0.7f, (int) BandMode::bell };
+    s.bands[4] = { false, 20000.0f, 0.0f, 0.7f, 1 };
+    return s;
+}
+
+float bandDb (const Settings& s, int band, float hz) noexcept
+{
+    const auto& b = s.bands[std::clamp (band, 0, kNumBands - 1)];
+    if (! b.on)
         return 0.0f;
 
-    const float octaves = std::log2 (std::max (1.0f, hz) / std::max (1.0f, b.freq));
-    const float q = std::clamp (b.q, 0.1f, 10.0f);
+    if (band == 0)
+        return std::max (-60.0f, 20.0f * std::log10 (cutResponse (b.freq / std::max (1.0f, hz), b.mode)));
+    if (band == kNumBands - 1)
+        return std::max (-60.0f, 20.0f * std::log10 (cutResponse (hz / std::max (1.0f, b.freq), b.mode)));
 
-    switch (b.shape)
-    {
-        case BandShape::lowShelf:  return b.gainDb / (1.0f + std::exp (octaves * 4.0f * q));
-        case BandShape::highShelf: return b.gainDb / (1.0f + std::exp (-octaves * 4.0f * q));
-        case BandShape::bell:
-        default:
-        {
-            const float width = 0.5f / q;   // en octaves
-            return b.gainDb * std::exp (-0.5f * (octaves * octaves) / (width * width));
-        }
-    }
+    // L'inclinaison va de -sens/2 sous la fréquence à +sens/2 au-dessus.
+    if ((BandMode) b.mode == BandMode::tilt)
+        return b.sens * 0.5f * std::tanh (octavesFrom (hz, b.freq) * 2.0f * std::clamp (b.q, 0.05f, 20.0f));
+
+    return b.sens * bandShape (b, hz);
 }
 
 float sensitivityDb (const Settings& s, float hz) noexcept
 {
     float db = 0.0f;
-    for (const auto& b : s.bands)
-        db += bandDb (b, hz);
+    for (int b = 0; b < kNumBands; ++b)
+        db += bandDb (s, b, hz);
     return db;
+}
+
+float bandCoverage (const Settings& s, int band, float hz) noexcept
+{
+    const auto& b = s.bands[std::clamp (band, 0, kNumBands - 1)];
+
+    if (band == 0)
+        return 1.0f - cutResponse (b.freq / std::max (1.0f, hz), b.mode);
+    if (band == kNumBands - 1)
+        return 1.0f - cutResponse (hz / std::max (1.0f, b.freq), b.mode);
+
+    return bandShape (b, hz);
+}
+
+//==============================================================================
+int BrumeEngine::latencyFor (double sr, Window w, int oversample) noexcept
+{
+    const int n = baseFrame (w) * scaleFor (sr);
+    const int m = n << std::clamp (oversample, 0, 2);
+    return (m + n) / 2;
 }
 
 void BrumeEngine::prepare (double sr, int channels)
 {
     sampleRate = sr;
     numCh = std::clamp (channels, 1, kMaxChannels);
+    srScale = scaleFor (sr);
 
-    // Même durée de trame en secondes quelle que soit la fréquence d'échantillonnage.
-    fftSize = sr >= 176400.0 ? 8192 : (sr >= 88200.0 ? 4096 : 2048);
-    hop = fftSize / 4;
-    mask = fftSize - 1;
-    bins = fftSize / 2 + 1;
-    hopSeconds = (float) (hop / sr);
+    // Toutes les tailles de FFT possibles : de la fenêtre courte à la longue en 4x.
+    ffts.clear();
+    for (int size = 1024 * srScale; size <= 16384 * srScale; size *= 2)
+        ffts.push_back (std::make_unique<Fft> (size));
 
-    fft = std::make_unique<Fft> (fftSize);
+    const int maxFft = 16384 * srScale;
+    const int maxBins = maxFft / 2 + 1;
+    ringSize = 2 * maxFft;
+    ringMask = ringSize - 1;
 
-    window.resize ((size_t) fftSize);
-    double sumSq = 0.0;
-    for (int i = 0; i < fftSize; ++i)
-    {
-        window[(size_t) i] = 0.5f - 0.5f * std::cos (kTwoPi * (float) i / (float) fftSize);
-        sumSq += (double) window[(size_t) i] * window[(size_t) i];
-    }
-    // Hann en analyse et en synthèse : la somme des carrés recouverts vaut sumSq / hop.
-    olaNorm = (float) (hop / sumSq);
-
+    window.assign ((size_t) (4096 * srScale), 0.0f);
     for (int ch = 0; ch < kMaxChannels; ++ch)
     {
-        inRing[ch].assign ((size_t) fftSize, 0.0f);
-        outTrans[ch].assign ((size_t) fftSize, 0.0f);
-        outRest[ch].assign ((size_t) fftSize, 0.0f);
-        spec[ch].assign ((size_t) bins, {});
-        hazeMag[ch].assign ((size_t) bins, 0.0f);
-        hazePhase[ch].assign ((size_t) bins, 0.0f);
+        inRing[ch].assign ((size_t) ringSize, 0.0f);
+        outRing[ch].assign ((size_t) ringSize, 0.0f);
+        spec[ch].assign ((size_t) maxBins, {});
+        target[ch].assign ((size_t) maxBins, 0.0f);
+        envelope[ch].assign ((size_t) maxBins, 0.0f);
+        gainDb[ch].assign ((size_t) maxBins, 0.0f);
     }
-    work.assign ((size_t) fftSize, {});
-    avgDb.assign ((size_t) bins, -120.0f);
-    novelty.assign ((size_t) bins, 0.0f);
-    envelope.assign ((size_t) bins, 0.0f);
-    releaseCoef.assign ((size_t) bins, 0.0f);
-    weightDb.assign ((size_t) bins, 0.0f);
-    visIn.assign ((size_t) bins, -120.0f);
+    for (int d = 0; d <= kMaxChannels; ++d)
+    {
+        avgDb[d].assign ((size_t) maxBins, -120.0f);
+        novelty[d].assign ((size_t) maxBins, 0.0f);
+    }
+    work.assign ((size_t) maxFft, {});
+    cep.assign ((size_t) maxFft, {});
+    for (auto* v : { &releaseCoef, &amount, &sensShift, &coverage, &scratch, &visIn, &visGain })
+        v->assign ((size_t) maxBins, 0.0f);
+    prefix.assign ((size_t) maxBins + 1, 0.0f);
+    halfWidth.assign ((size_t) maxBins, 1);
 
-    modesDirty = true;
-    setSettings (settings);
+    configure();
+}
+
+void BrumeEngine::configure() noexcept
+{
+    activeWindow = settings.window;
+    activeOversample = std::clamp (settings.oversample, 0, 2);
+    activeHighRes = settings.highResolution;
+
+    frameLen = baseFrame (activeWindow) * srScale;
+    fftSize = frameLen << activeOversample;
+    bins = fftSize / 2 + 1;
+    pad = (fftSize - frameLen) / 2;
+    hop = frameLen / (activeHighRes ? 8 : 4);
+    hopSeconds = (float) (hop / sampleRate);
+    latencySamples = (fftSize + frameLen) / 2;
+
+    fft = nullptr;
+    for (auto& f : ffts)
+        if (f->size() == fftSize)
+            fft = f.get();
+
+    double sum = 0.0, sumSq = 0.0;
+    for (int i = 0; i < frameLen; ++i)
+    {
+        window[(size_t) i] = 0.5f - 0.5f * std::cos (kTwoPi * (float) i / (float) frameLen);
+        sum += window[(size_t) i];
+        sumSq += (double) window[(size_t) i] * window[(size_t) i];
+    }
+
+    // Sans oversample, une fenêtre de synthèse adoucit les bords de trame. Avec, le filtre a la place
+    // de résonner dans le remplissage, et la trame se recolle telle quelle.
+    synthesisWindow = activeOversample == 0;
+    olaNorm = (float) (hop / (synthesisWindow ? sumSq : sum));
+
+    weightsDirty = true;
     reset();
 }
 
@@ -111,285 +197,305 @@ void BrumeEngine::reset() noexcept
     for (int ch = 0; ch < kMaxChannels; ++ch)
     {
         std::fill (inRing[ch].begin(), inRing[ch].end(), 0.0f);
-        std::fill (outTrans[ch].begin(), outTrans[ch].end(), 0.0f);
-        std::fill (outRest[ch].begin(), outRest[ch].end(), 0.0f);
-        std::fill (hazeMag[ch].begin(), hazeMag[ch].end(), 0.0f);
-        std::fill (hazePhase[ch].begin(), hazePhase[ch].end(), 0.0f);
+        std::fill (outRing[ch].begin(), outRing[ch].end(), 0.0f);
+        std::fill (envelope[ch].begin(), envelope[ch].end(), 0.0f);
+        std::fill (gainDb[ch].begin(), gainDb[ch].end(), 0.0f);
     }
-    std::fill (avgDb.begin(), avgDb.end(), -120.0f);
-    std::fill (envelope.begin(), envelope.end(), 0.0f);
-
-    for (auto& m : modes)
-        for (int ch = 0; ch < kMaxChannels; ++ch)
-            m.x1[ch] = m.x2[ch] = m.y1[ch] = m.y2[ch] = 0.0f;
-
+    for (int d = 0; d <= kMaxChannels; ++d)
+        std::fill (avgDb[d].begin(), avgDb[d].end(), -120.0f);
+    std::fill (visIn.begin(), visIn.end(), -120.0f);
+    std::fill (visGain.begin(), visGain.end(), 0.0f);
     writePos = 0;
     hopCount = 0;
 }
 
 void BrumeEngine::setSettings (const Settings& s) noexcept
 {
-    if (s.root != modeKey.root || s.chord != modeKey.chord
-        || s.decayS != modeKey.decayS || s.brightness != modeKey.brightness)
-        modesDirty = true;
+    const auto& k = weightKey;
+    bool changed = s.sharpness != k.sharpness || s.decay != k.decay || s.decayLfHf != k.decayLfHf
+                   || s.listenBand != k.listenBand;
+    for (int b = 0; b < kNumBands && ! changed; ++b)
+        changed = s.bands[b].on != k.bands[b].on || s.bands[b].freq != k.bands[b].freq || s.bands[b].sens != k.bands[b].sens
+                  || s.bands[b].q != k.bands[b].q || s.bands[b].mode != k.bands[b].mode;
+    if (changed)
+        weightsDirty = true;
 
     settings = s;
+}
 
-    // Retour de chaque bin : le tilt allonge les aigus (> 0) ou les graves (< 0),
-    // d'un facteur 2 par tranche de deux octaves au plus, autour de 1 kHz.
-    if (! releaseCoef.empty())
+void BrumeEngine::updateWeights() noexcept
+{
+    weightsDirty = false;
+    weightKey = settings;
+
+    const float binHz = (float) (sampleRate / fftSize);
+
+    // Decay : de 4 ms (0) à environ 1,4 s (10) ; decay lf/hf penche ce temps autour de 1 kHz.
+    const float releaseS = 0.004f * std::pow (2.0f, settings.decay * 0.85f);
+    const float lean = (std::clamp (settings.decayLfHf, 0.0f, 10.0f) - 5.0f) / 5.0f;
+
+    // Sharpness : chaque coupe ou boost s'étale sur 2 octaves (0) à un trentième d'octave (10).
+    const float widthOct = std::pow (2.0f, 1.0f - std::clamp (settings.sharpness, 0.0f, 10.0f) * 0.6f);
+    const float spread = std::pow (2.0f, widthOct * 0.5f) - 1.0f;
+    const int minHalf = std::max (1, (1 << activeOversample) / 2);
+
+    for (int k = 0; k < bins; ++k)
     {
-        const float releaseS = std::max (0.001f, s.releaseMs * 0.001f);
-        const float binHz = (float) (sampleRate / fftSize);
-        for (int k = 0; k < bins; ++k)
-        {
-            const float hz = std::max (20.0f, (float) k * binHz);
-            const float octaves = std::log2 (hz / 1000.0f);
-            const float t = releaseS * std::pow (2.0f, 0.5f * s.tilt * octaves);
-            releaseCoef[(size_t) k] = std::exp (-hopSeconds / std::max (0.001f, t));
-            weightDb[(size_t) k] = sensitivityDb (s, hz);
-        }
+        const float hz = std::max (10.0f, (float) k * binHz);
+        const float octaves = std::log2 (hz / 1000.0f);
+        releaseCoef[(size_t) k] = std::exp (-hopSeconds / std::max (0.001f, releaseS * std::pow (2.0f, lean * octaves)));
+
+        // Les bandes 1 à 3 : au-dessus de 0, plus de transitoires trouvées, et la profondeur atteinte plus tôt ;
+        // en dessous, moins, jusqu'à rien à -18 dB. Les coupe-bas et coupe-haut font ignorer ce qu'ils coupent.
+        float weight = 0.0f;
+        for (int b = 1; b < kNumBands - 1; ++b)
+            weight += bandDb (settings, b, hz);
+
+        float pass = 1.0f;
+        for (int b : { 0, kNumBands - 1 })
+            if (settings.bands[b].on)
+                pass *= std::pow (10.0f, bandDb (settings, b, hz) / 20.0f);
+
+        sensShift[(size_t) k] = std::max (0.0f, weight) * 0.5f;
+        amount[(size_t) k] = pass * std::clamp (1.0f + weight / 18.0f, 0.0f, 2.0f);
+        coverage[(size_t) k] = settings.listenBand >= 0 ? bandCoverage (settings, settings.listenBand, hz) : 1.0f;
+        halfWidth[(size_t) k] = std::clamp ((int) ((float) k * spread), minHalf, std::max (minHalf, bins / 4));
     }
 }
 
-void BrumeEngine::updateModes() noexcept
+void BrumeEngine::smoothAcross (const float* in, float* out) noexcept
 {
-    modesDirty = false;
-    modeKey = settings;
+    prefix[0] = 0.0f;
+    for (int k = 0; k < bins; ++k)
+        prefix[(size_t) k + 1] = prefix[(size_t) k] + in[k];
 
-    const auto& intervals = chordIntervals (settings.chord);
-    const float baseMidi = 48.0f + (float) std::clamp (settings.root, 0, 11);   // do3 .. si3
-    const float f0 = 440.0f * std::pow (2.0f, (baseMidi - 69.0f) / 12.0f);
-    const float nyquistGuard = (float) sampleRate * 0.45f;
-
-    numModes = 0;
-    for (int octave = 0; numModes < kMaxModes && octave < 6; ++octave)
+    for (int k = 0; k < bins; ++k)
     {
-        for (int iv : intervals)
-        {
-            if (numModes >= kMaxModes)
-                break;
-
-            const float hz = f0 * std::pow (2.0f, (float) (iv + 12 * octave) / 12.0f);
-            if (hz > std::min (8000.0f, nyquistGuard))
-                break;
-
-            const float ratio = hz / f0;
-            // Sombre : les modes aigus s'éteignent vite et sont plus bas. Brillant : l'inverse.
-            const float t60 = std::max (0.05f, settings.decayS * std::pow (ratio, (settings.brightness - 1.0f) * 0.6f));
-            const float level = std::pow (ratio, (settings.brightness - 0.6f) * 0.8f);
-
-            const float r = std::exp (-kLn1000 / (t60 * (float) sampleRate));
-            const float theta = kTwoPi * hz / (float) sampleRate;
-            const float thetaR = theta * std::pow (2.0f, 4.0f / 1200.0f);   // +4 cents à droite
-
-            modeHz[numModes] = hz;
-            auto& m = modes[numModes++];
-            m.a1 = 2.0f * r * std::cos (theta);
-            m.a1R = 2.0f * r * std::cos (thetaR);
-            m.a2 = -r * r;
-            // Normalisé en énergie : un clic donne à peu près la même quantité de son
-            // quelle que soit la durée de résonance.
-            m.gain = level * 2.0f * std::sin (theta) * std::sqrt (1.0f - r);
-        }
+        const int hw = halfWidth[(size_t) k];
+        const int lo = std::max (0, k - hw), hi = std::min (bins - 1, k + hw);
+        out[k] = (prefix[(size_t) hi + 1] - prefix[(size_t) lo]) / (float) (hi - lo + 1);
     }
-
-    const float norm = 1.0f / std::sqrt ((float) std::max (1, numModes));
-    for (int i = 0; i < numModes; ++i)
-        modes[i].gain *= norm;
 }
 
-float BrumeEngine::random() noexcept
+void BrumeEngine::minimumPhase (const float* gain, std::complex<float>* out) noexcept
 {
-    rng ^= rng << 13;
-    rng ^= rng >> 17;
-    rng ^= rng << 5;
-    return (float) rng * (2.0f / 4294967296.0f) - 1.0f;   // -1..1
+    // Cepstre réel du logarithme du gain, replié sur les temps positifs : la même amplitude, sans pré-écho.
+    for (int k = 0; k < bins; ++k)
+        cep[(size_t) k] = { gain[k] * kLn10Over20, 0.0f };
+    for (int k = 1; k < bins - 1; ++k)
+        cep[(size_t) (fftSize - k)] = cep[(size_t) k];
+    fft->inverse (cep.data());
+
+    const int half = fftSize / 2;
+    for (int n = 1; n < half; ++n)
+        cep[(size_t) n] = { 2.0f * cep[(size_t) n].real(), 0.0f };
+    cep[0] = { cep[0].real(), 0.0f };
+    cep[(size_t) half] = { cep[(size_t) half].real(), 0.0f };
+    for (int n = half + 1; n < fftSize; ++n)
+        cep[(size_t) n] = {};
+    fft->forward (cep.data());
+
+    for (int k = 0; k < bins; ++k)
+        out[k] = std::exp (cep[(size_t) k]);
 }
 
 void BrumeEngine::processFrame() noexcept
 {
     const Settings& s = settings;
+    const bool stereo = numCh == 2;
+    const bool midSide = stereo && s.stereoMode == StereoMode::midSide;
 
-    // 1. Spectres, la trame la plus ancienne en premier.
+    // 1. Spectres : la trame, fenêtrée, au milieu de la FFT (remplie de zéros autour avec l'oversample).
     for (int ch = 0; ch < numCh; ++ch)
     {
-        for (int i = 0; i < fftSize; ++i)
-            work[(size_t) i] = { inRing[ch][(size_t) ((writePos + i) & mask)] * window[(size_t) i], 0.0f };
+        std::fill (work.begin(), work.begin() + fftSize, std::complex<float> {});
+        for (int i = 0; i < frameLen; ++i)
+            work[(size_t) (pad + i)] = { inRing[ch][(size_t) ((writePos - frameLen + i) & ringMask)] * window[(size_t) i], 0.0f };
         fft->forward (work.data());
         std::copy (work.begin(), work.begin() + bins, spec[ch].begin());
     }
 
-    // 2. Détection, sur la moyenne des canaux : chaque bin comparé à sa propre
-    //    moyenne récente, en dB. Ce qui monte d'un coup est une attaque.
-    const float follow = 1.0f - std::exp (-hopSeconds / 0.05f);
-    for (int k = 0; k < bins; ++k)
-    {
-        float m = 0.0f;
-        for (int ch = 0; ch < numCh; ++ch)
-            m += std::abs (spec[ch][(size_t) k]);
-        m /= (float) numCh;
-
-        const float db = 20.0f * std::log10 (m + 1.0e-9f);
-        // Une bande au-dessus de 0 abaisse le seuil d'autant de dB (voir plus bas pour en dessous).
-        novelty[(size_t) k] = db > -100.0f ? std::max (0.0f, db - avgDb[(size_t) k] + std::max (0.0f, weightDb[(size_t) k])) : 0.0f;
-        avgDb[(size_t) k] += (db - avgDb[(size_t) k]) * follow;
-
-        // Pour l'écran : le spectre d'entrée, en dB par rapport à une sinusoïde pleine échelle.
-        const float shown = db - 20.0f * std::log10 ((float) fftSize * 0.25f);
-        visIn[(size_t) k] += (shown - visIn[(size_t) k]) * (shown > visIn[(size_t) k] ? 0.6f : 0.15f);
-    }
-
-    const float threshold = 14.0f - 1.2f * std::clamp (s.sensitivity, 0.0f, 10.0f);  // 14 dB .. 2 dB
-    float shareSum = 0.0f;
-    for (int k = 0; k < bins; ++k)
-    {
-        // Lissé sur ±2 bins : une attaque est rarement large d'un seul bin.
-        float sum = 0.0f, weight = 0.0f;
-        for (int d = -2; d <= 2; ++d)
+    if (midSide)
+        for (int k = 0; k < bins; ++k)
         {
-            const int j = k + d;
-            if (j < 0 || j >= bins)
-                continue;
-            const float w = 3.0f - (float) std::abs (d);
-            sum += novelty[(size_t) j] * w;
-            weight += w;
+            const auto l = spec[0][(size_t) k], r = spec[1][(size_t) k];
+            spec[0][(size_t) k] = (l + r) * 0.5f;
+            spec[1][(size_t) k] = (l - r) * 0.5f;
         }
-        const float n = sum / weight;
-        // Une bande en dessous de 0 retire de la part traitée : plus rien à -12 dB.
-        const float keep = std::clamp (1.0f + std::min (0.0f, weightDb[(size_t) k]) / 12.0f, 0.0f, 1.0f);
-        const float t = keep * std::clamp ((n - threshold) / 6.0f, 0.0f, 1.0f);
-        envelope[(size_t) k] = std::max (t, envelope[(size_t) k] * releaseCoef[(size_t) k]);
-        shareSum += envelope[(size_t) k];
-    }
-    transientShare = shareSum / (float) bins;
-    ++frameCount;
 
-    // 3. Séparation, brume, et retour au temps.
-    const float hazeDecay = std::exp (-kLn1000 * hopSeconds / std::max (0.1f, s.hazeS));
-    const float hazeGain = 2.0f * std::clamp (s.haze, 0.0f, 1.0f);
-    const float blur = std::clamp (s.blur, 0.0f, 1.0f);
-    const float dissolve = blur * std::clamp (s.haze, 0.0f, 1.0f);
-    const float phaseStep = kTwoPi * (float) hop / (float) fftSize;
+    // 2. Détection : chaque bin comparé à sa propre moyenne récente, en dB, pour chaque canal et pour les deux liés.
+    const float follow = 1.0f - std::exp (-hopSeconds / 0.05f);
+    const float threshold = 14.0f - 1.2f * std::clamp (s.sensitivity, 0.0f, 10.0f);
+    const float shownOffset = 20.0f * std::log10 ((float) frameLen * 0.25f);
+    const int detectors = stereo ? 3 : 1;
 
-    for (int ch = 0; ch < numCh; ++ch)
+    for (int k = 0; k < bins; ++k)
     {
-        auto& X = spec[ch];
-        auto& hm = hazeMag[ch];
-        auto& hp = hazePhase[ch];
-
-        // Les attaques.
-        for (int k = 0; k < bins; ++k)
-            work[(size_t) k] = X[(size_t) k] * envelope[(size_t) k];
-        for (int k = 1; k < bins - 1; ++k)
-            work[(size_t) (fftSize - k)] = std::conj (work[(size_t) k]);
-        work[0].imag (0.0f);
-        work[(size_t) (bins - 1)].imag (0.0f);
-        fft->inverse (work.data());
-        for (int i = 0; i < fftSize; ++i)
-            outTrans[ch][(size_t) ((writePos + i) & mask)] += work[(size_t) i].real() * window[(size_t) i] * olaNorm;
-
-        // Le reste, et la brume qu'il laisse derrière lui.
-        for (int k = 0; k < bins; ++k)
+        float linked = 0.0f;
+        for (int d = 0; d < detectors; ++d)
         {
-            const auto x = X[(size_t) k];
-            const float mag = std::abs (x);
-            const float decayed = hm[(size_t) k] * hazeDecay;
-
-            if (mag >= decayed)
+            float m;
+            if (d < numCh)
             {
-                hm[(size_t) k] = mag;
-                hp[(size_t) k] = std::arg (x);
+                m = std::abs (spec[d][(size_t) k]);
+                linked += m;
             }
             else
             {
-                hm[(size_t) k] = decayed;
-                hp[(size_t) k] += phaseStep * (float) k + blur * kPi * random();
+                m = linked * 0.5f;
             }
 
-            // La brume ne garde que ce qui dépasse le son présent : une traîne, pas un doublon.
-            const float tail = std::max (0.0f, hm[(size_t) k] - mag);
-            const auto hazeBin = std::polar (tail * hazeGain, hp[(size_t) k]);
-
-            auto rest = x * (1.0f - envelope[(size_t) k]);
-            if (dissolve > 0.0f)
-            {
-                const auto scattered = std::polar (std::abs (rest), std::arg (rest) + kPi * random());
-                rest = rest * (1.0f - dissolve) + scattered * dissolve;
-            }
-            work[(size_t) k] = rest + hazeBin;
+            const float db = 20.0f * std::log10 (m + 1.0e-9f);
+            auto& avg = avgDb[d][(size_t) k];
+            novelty[d][(size_t) k] = db > -110.0f ? std::max (0.0f, db - avg + sensShift[(size_t) k]) : 0.0f;
+            avg += (db - avg) * follow;
         }
+
+        const float shown = 20.0f * std::log10 ((stereo ? linked * 0.5f : linked) + 1.0e-9f) - shownOffset;
+        visIn[(size_t) k] += (shown - visIn[(size_t) k]) * (shown > visIn[(size_t) k] ? 0.6f : 0.15f);
+    }
+
+    const float link = stereo ? std::clamp (s.stereoLink / 100.0f, 0.0f, 1.0f) : 0.0f;
+    auto found = [threshold] (float n) { return std::clamp ((n - threshold) / 6.0f, 0.0f, 1.0f); };
+
+    // Balance : 0 = 100/0, 0,5 = 100/100, 1 = 0/100.
+    const float balance = std::clamp (s.balance, 0.0f, 1.0f);
+    const float channelAmount[2] = { std::min (1.0f, 2.0f * (1.0f - balance)), std::min (1.0f, 2.0f * balance) };
+    const float range = s.rangeDb();
+
+    float share = 0.0f;
+    for (int ch = 0; ch < numCh; ++ch)
+    {
+        for (int k = 0; k < bins; ++k)
+            scratch[(size_t) k] = (1.0f - link) * found (novelty[ch][(size_t) k])
+                                  + link * found (novelty[stereo ? 2 : 0][(size_t) k]);
+
+        smoothAcross (scratch.data(), target[ch].data());
+
+        auto& env = envelope[ch];
+        const float chAmount = stereo ? channelAmount[ch] : 1.0f;
+        for (int k = 0; k < bins; ++k)
+        {
+            const float t = target[ch][(size_t) k] * amount[(size_t) k];
+            env[(size_t) k] = std::max (t, env[(size_t) k] * releaseCoef[(size_t) k]);
+            gainDb[ch][(size_t) k] = range * std::min (env[(size_t) k], 1.0f) * chAmount;   // depth fixe le maximum
+            share += std::min (env[(size_t) k], 1.0f);
+        }
+    }
+    transientShare = share / (float) (bins * numCh);
+
+    for (int k = 0; k < bins; ++k)
+    {
+        float g = 0.0f;
+        for (int ch = 0; ch < numCh; ++ch)
+            g += gainDb[ch][(size_t) k];
+        visGain[(size_t) k] = g / (float) numCh;
+    }
+    ++frameCount;
+
+    // 3. Le filtre de chaque canal, linéaire (gain réel) ou à phase minimale.
+    const bool listening = s.listenBand >= 0;
+    for (int ch = 0; ch < numCh; ++ch)
+    {
+        auto& X = spec[ch];
+        if (s.phase == Phase::minimum)
+        {
+            minimumPhase (gainDb[ch].data(), work.data());
+            for (int k = 0; k < bins; ++k)
+                X[(size_t) k] *= listening ? (work[(size_t) k] - 1.0f) * coverage[(size_t) k] : work[(size_t) k];
+        }
+        else
+        {
+            for (int k = 0; k < bins; ++k)
+            {
+                const float g = std::pow (10.0f, gainDb[ch][(size_t) k] / 20.0f);
+                X[(size_t) k] *= listening ? (g - 1.0f) * coverage[(size_t) k] : g;
+            }
+        }
+    }
+
+    if (midSide)
+        for (int k = 0; k < bins; ++k)
+        {
+            const auto m = spec[0][(size_t) k], sd = spec[1][(size_t) k];
+            spec[0][(size_t) k] = m + sd;
+            spec[1][(size_t) k] = m - sd;
+        }
+
+    // 4. Retour au temps, et recollage des trames. La trame commence à writePos - frameLen - pad ;
+    //    retardée de latencySamples = frameLen + pad, elle se recolle à partir de writePos.
+    for (int ch = 0; ch < numCh; ++ch)
+    {
+        for (int k = 0; k < bins; ++k)
+            work[(size_t) k] = spec[ch][(size_t) k];
         for (int k = 1; k < bins - 1; ++k)
             work[(size_t) (fftSize - k)] = std::conj (work[(size_t) k]);
         work[0].imag (0.0f);
         work[(size_t) (bins - 1)].imag (0.0f);
         fft->inverse (work.data());
-        for (int i = 0; i < fftSize; ++i)
-            outRest[ch][(size_t) ((writePos + i) & mask)] += work[(size_t) i].real() * window[(size_t) i] * olaNorm;
+
+        auto& out = outRing[ch];
+        if (synthesisWindow)
+        {
+            for (int i = 0; i < frameLen; ++i)
+                out[(size_t) ((writePos + i) & ringMask)] += work[(size_t) i].real() * window[(size_t) i] * olaNorm;
+        }
+        else
+        {
+            for (int i = 0; i < fftSize; ++i)
+                out[(size_t) ((writePos + i) & ringMask)] += work[(size_t) i].real() * olaNorm;
+        }
     }
 }
 
 void BrumeEngine::process (float* const* io, int channels, int numSamples) noexcept
 {
-    if (modesDirty)
-        updateModes();
+    if (settings.window != activeWindow || std::clamp (settings.oversample, 0, 2) != activeOversample
+        || settings.highResolution != activeHighRes)
+        configure();
+
+    if (weightsDirty)
+        updateWeights();
 
     const int chs = std::min (channels, numCh);
-    const float punch = dbToGain (std::clamp (settings.punchDb(), -60.0f, 24.0f));
-    const bool delta = settings.delta, bypass = settings.bypass;
-    const float resoGain = 4.0f * std::clamp (settings.reso, 0.0f, 1.0f);
-    const float mix = std::clamp (settings.mix, 0.0f, 1.0f);
-    const float out = dbToGain (settings.outDb);
+    const auto& s = settings;
+    const float mix = std::clamp (s.mix / 100.0f, 0.0f, 1.0f);
+    const float trim = std::pow (10.0f, s.trimDb / 20.0f);
+    const bool listening = s.listenBand >= 0;
 
     for (int n = 0; n < numSamples; ++n)
     {
         const auto idx = (size_t) writePos;
+        const auto dryIdx = (size_t) ((writePos - latencySamples) & ringMask);
 
         for (int ch = 0; ch < chs; ++ch)
         {
             const float x = io[ch][n];
-            const float dry = inRing[ch][idx];          // l'entrée d'il y a fftSize échantillons
-            const float t = outTrans[ch][idx];
-            const float r = outRest[ch][idx];
-            outTrans[ch][idx] = 0.0f;
-            outRest[ch][idx] = 0.0f;
+            const float dry = inRing[ch][dryIdx];
+            const float wet = outRing[ch][idx];
+            outRing[ch][idx] = 0.0f;
             inRing[ch][idx] = x;
 
-            // Les attaques frappent les résonateurs (passe-bande à deux pôles).
-            float reso = 0.0f;
-            for (int i = 0; i < numModes; ++i)
-            {
-                auto& m = modes[i];
-                const float a1 = ch == 1 ? m.a1R : m.a1;
-                const float y = m.gain * (t - m.x2[ch]) + a1 * m.y1[ch] + m.a2 * m.y2[ch];
-                m.x2[ch] = m.x1[ch];
-                m.x1[ch] = t;
-                m.y2[ch] = m.y1[ch];
-                m.y1[ch] = y;
-                reso += y;
-            }
+            float y;
+            if (listening)
+                y = wet;                                    // le delta de la bande écoutée
+            else if (s.bypass)
+                y = dry;
+            else if (s.delta)
+                y = dry * (1.0f - mix) + (wet * trim - dry) * mix;
+            else
+                y = dry * (1.0f - mix) + wet * trim * mix;
 
-            const float wet = r + t * punch + std::tanh (reso * resoGain);
-            const float processed = (dry * (1.0f - mix) + wet * mix) * out;
-            io[ch][n] = bypass ? dry : (delta ? processed - dry : processed);
+            io[ch][n] = y;
         }
 
-        // Un canal en trop dans le bloc passe sans traitement.
-        writePos = (writePos + 1) & mask;
-        if (++hopCount == hop)
+        writePos = (writePos + 1) & ringMask;
+        if (++hopCount >= hop)
         {
             hopCount = 0;
             processFrame();
         }
     }
-
-    // Évite les nombres dénormalisés dans les queues de résonance.
-    for (int i = 0; i < numModes; ++i)
-        for (int ch = 0; ch < kMaxChannels; ++ch)
-        {
-            if (std::abs (modes[i].y1[ch]) < 1.0e-15f) modes[i].y1[ch] = 0.0f;
-            if (std::abs (modes[i].y2[ch]) < 1.0e-15f) modes[i].y2[ch] = 0.0f;
-        }
 }
 
 } // namespace bb

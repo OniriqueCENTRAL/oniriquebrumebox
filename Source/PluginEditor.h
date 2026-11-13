@@ -10,10 +10,13 @@
 namespace onirique
 {
 
-/** Quatre zones, chacune son rôle : l'en-tête (la licence, delta, bypass) ;
-    la première colonne, ce qui est fait aux attaques et comment elles sont
-    trouvées ; la deuxième, ce qui en naît (les résonateurs et la brume) ; et
-    l'écran, où tout cela se passe. */
+/** Les paramètres de spiff, ni plus ni moins, avec l'allure ONIRIQUE.
+
+    L'en-tête : la licence, DELTA, BYPASS. La première colonne : CUT ou BOOST,
+    DEPTH, puis la détection (SENSITIVITY, DECAY, SHARPNESS, DECAY LF/HF). La
+    deuxième : la stéréo (mode, link, balance), la sortie (mix, trim) et
+    l'avancé (resolution, oversample, window, phase). L'écran : le spectre, la
+    réduction, et les cinq bandes de la courbe de sensibilité. */
 class BrumeBoxEditor final : public AudioProcessorEditor,
                              private Timer
 {
@@ -68,16 +71,14 @@ private:
     // L'en-tête.
     TextButton deltaButton { "DELTA" }, bypassButton { "BYPASS" };
 
-    // Première colonne : les attaques.
+    // Première colonne : cut ou boost, et la détection.
     TextButton cutButton { "CUT" }, boostButton { "BOOST" };
     std::unique_ptr<ParameterAttachment> modeAttachment;
-    Knob depth { "DEPTH" }, sensitivity { theme::fr ("SENSIBILITÉ") }, release { "RETOUR" }, tilt { "TILT" }, mix { "MIX" };
+    Knob depth { "DEPTH" }, sensitivity { "SENSITIVITY" }, decay { "DECAY" }, sharpness { "SHARPNESS" }, decayLfHf { "DECAY LF/HF" };
 
-    // Deuxième colonne : ce qui en naît.
-    ComboBox rootBox, chordBox;
-    Knob reso { theme::fr ("RÉSO") }, decay { theme::fr ("DURÉE") }, brightness { theme::fr ("ÉCLAT") };
-    Knob haze { "BRUME" }, hazeTime { theme::fr ("DURÉE") }, blur { "FLOU" };
-    ValueField output { "OUT" };
+    // Deuxième colonne : stéréo, sortie, avancé.
+    ComboBox stereoModeBox, resolutionBox, oversampleBox, windowBox, phaseBox;
+    Knob link { "STEREO LINK" }, balance { "BALANCE" }, mix { "MIX" }, trim { "TRIM" };
 
     std::vector<std::unique_ptr<ButtonAttachment>> buttonAttachments;
     std::vector<std::unique_ptr<ComboBoxAttachment>> comboAttachments;

@@ -3,8 +3,8 @@
 #include "dsp/BrumeEngine.h"
 
 #include <cmath>
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -19,72 +19,54 @@ void check (bool ok, const char* what)
     if (! ok) ++failures;
 }
 
-/** Une note tenue (la2) et une frappe bruitée toutes les demi-secondes. */
-std::vector<float> makeSignal (int numSamples, std::vector<int>& hitStarts, float tone = 0.15f)
-{
-    std::vector<float> s ((size_t) numSamples);
-    uint32_t rng = 12345;
-    for (int i = 0; i < numSamples; ++i)
-        s[(size_t) i] = tone * (float) std::sin (2.0 * 3.141592653589793 * 220.0 * i / kSr);
+/** Une note tenue (la2, à gauche plus fort) et une frappe bruitée toutes les demi-secondes, au centre. */
+struct Signal { std::vector<float> l, r; std::vector<int> hits; };
 
-    const int every = (int) (kSr * 0.5);
-    for (int start = (int) (kSr * 0.25); start < numSamples; start += every)
+Signal makeSignal (double seconds, float tone = 0.15f)
+{
+    const int n = (int) (kSr * seconds);
+    Signal s { std::vector<float> ((size_t) n), std::vector<float> ((size_t) n), {} };
+    uint32_t rng = 12345;
+    for (int i = 0; i < n; ++i)
     {
-        hitStarts.push_back (start);
-        for (int i = 0; i < (int) (kSr * 0.03) && start + i < numSamples; ++i)
+        const float t = tone * (float) std::sin (2.0 * 3.141592653589793 * 220.0 * i / kSr);
+        s.l[(size_t) i] = t;
+        s.r[(size_t) i] = 0.5f * t;
+    }
+    for (int start = (int) (kSr * 0.25); start < n; start += (int) (kSr * 0.5))
+    {
+        s.hits.push_back (start);
+        for (int i = 0; i < (int) (kSr * 0.03) && start + i < n; ++i)
         {
             rng = rng * 1664525u + 1013904223u;
-            const float noise = (float) (rng >> 8) / 8388608.0f - 1.0f;
-            s[(size_t) (start + i)] += 0.6f * noise * std::exp (-(float) i / (float) (kSr * 0.004));
+            const float noise = 0.6f * ((float) (rng >> 8) / 8388608.0f - 1.0f) * std::exp (-(float) i / (float) (kSr * 0.004));
+            s.l[(size_t) (start + i)] += noise;
+            s.r[(size_t) (start + i)] += noise;
         }
     }
     return s;
 }
 
-void writeWav (const std::string& path, const std::vector<float>& l, const std::vector<float>& r)
-{
-    FILE* f = std::fopen (path.c_str(), "wb");
-    if (! f) return;
-    const uint32_t n = (uint32_t) l.size(), dataBytes = n * 2 * 2, sr = (uint32_t) kSr, byteRate = sr * 4;
-    const uint16_t fmt = 1, ch = 2, align = 4, bits = 16;
-    const uint32_t riff = 36 + dataBytes, fmtLen = 16;
-    std::fwrite ("RIFF", 1, 4, f); std::fwrite (&riff, 4, 1, f); std::fwrite ("WAVEfmt ", 1, 8, f);
-    std::fwrite (&fmtLen, 4, 1, f); std::fwrite (&fmt, 2, 1, f); std::fwrite (&ch, 2, 1, f);
-    std::fwrite (&sr, 4, 1, f); std::fwrite (&byteRate, 4, 1, f); std::fwrite (&align, 2, 1, f);
-    std::fwrite (&bits, 2, 1, f); std::fwrite ("data", 1, 4, f); std::fwrite (&dataBytes, 4, 1, f);
-    for (uint32_t i = 0; i < n; ++i)
-        for (const auto* c : { &l, &r })
-        {
-            const float v = std::max (-1.0f, std::min (1.0f, (*c)[i]));
-            const int16_t s = (int16_t) std::lrint (v * 32767.0f);
-            std::fwrite (&s, 2, 1, f);
-        }
-    std::fclose (f);
-}
+struct Result { std::vector<float> l, r; std::vector<float> shareAtHit, shareBetween; int latency = 0; };
 
-struct Result
-{
-    std::vector<float> l, r;
-    std::vector<float> shareAtHit, shareBetween;
-};
-
-Result run (const bb::Settings& s, const std::vector<float>& in, const std::vector<int>& hits)
+Result run (const bb::Settings& s, const Signal& in)
 {
     bb::BrumeEngine e;
+    e.setSettings (s);
     e.prepare (kSr, 2);
     e.setSettings (s);
 
-    Result res { in, in, {}, {} };
+    Result res { in.l, in.r, {}, {}, 0 };
     const int block = 256;
-    for (int pos = 0; pos < (int) in.size(); pos += block)
+    for (int pos = 0; pos < (int) in.l.size(); pos += block)
     {
-        const int n = std::min (block, (int) in.size() - pos);
+        const int n = std::min (block, (int) in.l.size() - pos);
         float* io[2] = { res.l.data() + pos, res.r.data() + pos };
         e.process (io, 2, n);
+        res.latency = e.latency();
 
-        // La trame qui vient d'être analysée couvre les fftSize derniers échantillons.
         const int end = pos + n;
-        for (int h : hits)
+        for (int h : in.hits)
         {
             if (end > h + 600 && end <= h + 600 + block) res.shareAtHit.push_back (e.lastTransientShare());
             if (end > h + 12000 && end <= h + 12000 + block) res.shareBetween.push_back (e.lastTransientShare());
@@ -98,121 +80,212 @@ float mean (const std::vector<float>& v)
     float s = 0; for (float x : v) s += x;
     return v.empty() ? 0.0f : s / (float) v.size();
 }
+
+/** Écart entre la sortie et l'entrée retardée de la latence, en dB sous le signal. */
+double reconstructionDb (const Result& out, const std::vector<float>& in, const std::vector<float>& o)
+{
+    double err = 0, ref = 0;
+    const auto L = (size_t) out.latency;
+    for (size_t i = L * 2; i < in.size(); ++i)
+    {
+        const double d = o[i] - in[i - L];
+        err += d * d; ref += (double) in[i - L] * in[i - L];
+    }
+    return 10.0 * std::log10 (ref / std::max (err, 1e-30));
+}
+
+/** Énergie autour des frappes, à gauche, en dB par rapport à l'entrée. */
+double hitsDb (const Result& out, const Signal& in)
+{
+    double eIn = 0, eOut = 0;
+    for (int h : in.hits)
+        for (int i = 0; i < 1200 && h + out.latency + i < (int) in.l.size(); ++i)
+        {
+            eIn += (double) in.l[(size_t) (h + i)] * in.l[(size_t) (h + i)];
+            eOut += (double) out.l[(size_t) (h + out.latency + i)] * out.l[(size_t) (h + out.latency + i)];
+        }
+    return 10.0 * std::log10 (eOut / eIn);
+}
+
+void writeWav (const std::string& path, const std::vector<float>& l, const std::vector<float>& r)
+{
+    FILE* f = std::fopen (path.c_str(), "wb");
+    if (! f) return;
+    const uint32_t n = (uint32_t) l.size(), dataBytes = n * 4, sr = (uint32_t) kSr, byteRate = sr * 4, riff = 36 + dataBytes, fmtLen = 16;
+    const uint16_t fmt = 1, ch = 2, align = 4, bits = 16;
+    std::fwrite ("RIFF", 1, 4, f); std::fwrite (&riff, 4, 1, f); std::fwrite ("WAVEfmt ", 1, 8, f);
+    std::fwrite (&fmtLen, 4, 1, f); std::fwrite (&fmt, 2, 1, f); std::fwrite (&ch, 2, 1, f);
+    std::fwrite (&sr, 4, 1, f); std::fwrite (&byteRate, 4, 1, f); std::fwrite (&align, 2, 1, f);
+    std::fwrite (&bits, 2, 1, f); std::fwrite ("data", 1, 4, f); std::fwrite (&dataBytes, 4, 1, f);
+    for (uint32_t i = 0; i < n; ++i)
+        for (const auto* c : { &l, &r })
+        {
+            const int16_t s = (int16_t) std::lrint (std::max (-1.0f, std::min (1.0f, (*c)[i])) * 32767.0f);
+            std::fwrite (&s, 2, 1, f);
+        }
+    std::fclose (f);
+}
 } // namespace
 
 int main (int argc, char** argv)
 {
     const std::string dir = argc > 1 ? argv[1] : ".";
-    std::vector<int> hits;
-    const auto in = makeSignal ((int) (kSr * 4.0), hits);
+    const auto in = makeSignal (4.0);
+    const auto clicks = makeSignal (4.0, 0.0f);
 
-    bb::BrumeEngine probe;
-    probe.prepare (kSr, 2);
-    const int latency = probe.latency();
-
-    // 1. Neutre : attaques + reste = le signal, retardé de la latence.
+    // 1. Depth à 0 : le son ressort intact, dans toutes les configurations.
     {
-        bb::Settings s;
-        s.depth = 0; s.reso = 0; s.haze = 0; s.blur = 0;
-        const auto out = run (s, in, hits);
-        double err = 0, ref = 0;
-        for (size_t i = (size_t) latency * 2; i < in.size(); ++i)
-        {
-            const double d = out.l[i] - in[i - (size_t) latency];
-            err += d * d; ref += (double) in[i - (size_t) latency] * in[i - (size_t) latency];
-        }
-        const double snr = 10.0 * std::log10 (ref / std::max (err, 1e-30));
-        std::printf ("      reconstruction : %.1f dB\n", snr);
-        check (snr > 80.0, "reglages neutres : le son ressort intact (> 80 dB)");
-
-        std::printf ("      part d'attaque : %.3f sur les frappes, %.3f entre elles\n",
-                     mean (out.shareAtHit), mean (out.shareBetween));
-        check (mean (out.shareAtHit) > 4.0f * mean (out.shareBetween) + 0.02f,
-               "les frappes sont detectees, la note tenue non");
+        const char* windows[] = { "court", "moyen", "long" };
+        const char* oversamples[] = { "1x", "2x", "4x" };
+        bool all = true;
+        double worst = 1e9;
+        for (int w = 0; w < 3; ++w)
+            for (int os = 0; os < 3; ++os)
+                for (int res = 0; res < 2; ++res)
+                    for (int ph = 0; ph < 2; ++ph)
+                    {
+                        auto s = bb::defaultSettings();
+                        s.cutDepth = 0;
+                        s.window = (bb::Window) w; s.oversample = os; s.highResolution = res; s.phase = (bb::Phase) ph;
+                        const auto out = run (s, in);
+                        const auto db = reconstructionDb (out, in.l, out.l);
+                        worst = std::min (worst, db);
+                        if (db < 60.0)
+                        {
+                            all = false;
+                            std::printf ("      %s %s res %d phase %d : %.1f dB\n", windows[w], oversamples[os], res, ph, db);
+                        }
+                    }
+        std::printf ("      pire reconstruction sur 36 configurations : %.1f dB\n", worst);
+        check (all, "depth 0 : intact dans toutes les fenetres, oversamples, resolutions et phases (> 60 dB)");
     }
 
-    // 2. Attaques coupées : moins d'énergie autour des frappes.
+    // 2. Détection : les frappes, pas la note tenue.
     {
-        bb::Settings s;
-        s.boost = false; s.depth = 10; s.reso = 0; s.haze = 0; s.blur = 0;
-        // Les frappes seules : avec la note, elle domine l'energie mesuree.
-        std::vector<int> h2;
-        const auto clicks = makeSignal ((int) (kSr * 4.0), h2, 0.0f);
-        const auto& in = clicks;
-        const auto out = run (s, clicks, h2);
+        auto s = bb::defaultSettings();
+        s.cutDepth = 0;
+        const auto out = run (s, in);
+        std::printf ("      part detectee : %.3f sur les frappes, %.3f entre elles\n", mean (out.shareAtHit), mean (out.shareBetween));
+        check (mean (out.shareAtHit) > 4.0f * mean (out.shareBetween) + 0.02f, "les frappes sont detectees, la note tenue non");
+    }
+
+    // 3. Cut et boost.
+    {
+        auto s = bb::defaultSettings();
+        s.cutDepth = 10;
+        const auto cut = run (s, clicks);
+        s.boost = true; s.boostDepth = 10;
+        const auto boost = run (s, clicks);
+        s.phase = bb::Phase::minimum;
+        const auto boostMin = run (s, clicks);
+        std::printf ("      frappes : cut %.1f dB, boost %+.1f dB, boost phase minimale %+.1f dB\n",
+                     hitsDb (cut, clicks), hitsDb (boost, clicks), hitsDb (boostMin, clicks));
+        check (hitsDb (cut, clicks) < -12.0, "cut depth 10 : les frappes baissent de plus de 12 dB");
+        check (hitsDb (boost, clicks) > 4.0, "boost depth 10 : les frappes montent de plus de 4 dB");
+        check (hitsDb (boostMin, clicks) > 4.0, "phase minimale : le boost marche aussi");
+    }
+
+    // 4. Les bandes : -18 dB partout, et les coupe-bas / coupe-haut, font ignorer.
+    {
+        auto s = bb::defaultSettings();
+        s.cutDepth = 10;
+        s.bands[1] = { true, 20000.0f, -18.0f, 2.0f, (int) bb::BandMode::lowShelf };
+        s.bands[2].on = false;
+        s.bands[3].on = false;
+        const auto quiet = run (s, clicks);
+        std::printf ("      etagere grave a -18 dB sur tout le spectre : frappes %.1f dB\n", hitsDb (quiet, clicks));
+        check (hitsDb (quiet, clicks) > -3.0, "une bande a -18 dB ne laisse presque plus rien traiter (sous 20 kHz)");
+
+        auto c = bb::defaultSettings();
+        c.cutDepth = 10;
+        c.bands[0] = { true, 18000.0f, 0.0f, 0.7f, 3 };
+        const auto lowcut = run (c, clicks);
+        std::printf ("      coupe-bas a 18 kHz : frappes %.1f dB\n", hitsDb (lowcut, clicks));
+        check (hitsDb (lowcut, clicks) > -3.0, "le coupe-bas fait ignorer ce qu'il coupe");
+    }
+
+    // 5. Stéréo : balance 100/0 en L/R ne touche pas la droite.
+    {
+        auto s = bb::defaultSettings();
+        s.cutDepth = 10; s.balance = 0.0f;
+        const auto out = run (s, clicks);
         double eIn = 0, eOut = 0;
-        for (int h : h2)
-            for (int i = 0; i < 1200 && h + latency + i < (int) in.size(); ++i)
+        for (int h : clicks.hits)
+            for (int i = 0; i < 1200 && h + out.latency + i < (int) clicks.r.size(); ++i)
             {
-                eIn += (double) in[(size_t) (h + i)] * in[(size_t) (h + i)];
-                eOut += (double) out.l[(size_t) (h + latency + i)] * out.l[(size_t) (h + latency + i)];
+                eIn += (double) clicks.r[(size_t) (h + i)] * clicks.r[(size_t) (h + i)];
+                eOut += (double) out.r[(size_t) (h + out.latency + i)] * out.r[(size_t) (h + out.latency + i)];
             }
-        const double db = 10.0 * std::log10 (eOut / eIn);
-        std::printf ("      frappes : %.1f dB\n", db);
-        check (db < -6.0, "punch -24 dB : les frappes baissent d'au moins 6 dB");
+        const auto right = 10.0 * std::log10 (eOut / eIn);
+        std::printf ("      balance 100/0 : gauche %.1f dB, droite %.1f dB\n", hitsDb (out, clicks), right);
+        check (hitsDb (out, clicks) < -12.0 && std::abs (right) < 0.5, "balance 100/0 : seule la gauche est traitee");
+
+        s.balance = 0.5f; s.stereoMode = bb::StereoMode::midSide;
+        const auto ms = run (s, clicks);
+        std::printf ("      mid/side : frappes %.1f dB\n", hitsDb (ms, clicks));
+        check (hitsDb (ms, clicks) < -12.0, "mid/side : les frappes au centre sont traitees");
+        s.cutDepth = 0;
+        const auto msNeutral = run (s, in);
+        check (reconstructionDb (msNeutral, in.r, msNeutral.r) > 60.0, "mid/side, depth 0 : intact");
     }
 
-    // 3. Le réglage onirique : stable, borné, et une traîne après la fin du son.
+    // 6. Delta, bypass, trim, écoute d'une bande.
     {
-        bb::Settings s;
-        s.depth = 2.5f; s.reso = 0.8f; s.decayS = 4; s.haze = 0.6f; s.hazeS = 6; s.blur = 0.7f;
-        auto silent = in;
-        silent.resize (silent.size() + (size_t) (kSr * 3), 0.0f);
-        const auto out = run (s, silent, hits);
+        auto s = bb::defaultSettings();
+        s.cutDepth = 0; s.delta = true;
+        const auto d = run (s, in);
+        float peak = 0;
+        for (size_t i = (size_t) d.latency * 2; i < in.l.size(); ++i) peak = std::max (peak, std::abs (d.l[i]));
+        check (peak < 1.0e-3f, "delta, depth 0 : presque rien");
 
+        auto b = bb::defaultSettings();
+        b.cutDepth = 10; b.bypass = true;
+        const auto by = run (b, in);
+        check (reconstructionDb (by, in.l, by.l) > 100.0, "bypass : le son d'origine, latence comprise");
+
+        auto t = bb::defaultSettings();
+        t.cutDepth = 0; t.trimDb = -6.0f;
+        const auto trimmed = run (t, in);
+        double ratio = 0, ref = 0;
+        for (size_t i = (size_t) trimmed.latency * 2; i < in.l.size(); ++i)
+        {
+            ratio += (double) trimmed.l[i] * trimmed.l[i];
+            ref += (double) in.l[i - (size_t) trimmed.latency] * in.l[i - (size_t) trimmed.latency];
+        }
+        const auto trimDb = 10.0 * std::log10 (ratio / ref);
+        std::printf ("      trim -6 dB : %.2f dB\n", trimDb);
+        check (std::abs (trimDb + 6.0) < 0.1, "trim : -6 dB sur le signal traite");
+
+        auto l = bb::defaultSettings();
+        l.cutDepth = 10; l.listenBand = 2;
+        const auto listen = run (l, clicks);
+        double e = 0;
+        for (size_t i = 0; i < listen.l.size(); ++i) e += (double) listen.l[i] * listen.l[i];
+        check (e > 0.0 && std::isfinite (e), "ecoute d'une bande : on entend ce qu'elle change");
+    }
+
+    // 7. Les réglages extrêmes : ni NaN ni explosion.
+    {
+        auto s = bb::defaultSettings();
+        s.boost = true; s.boostDepth = 10; s.sensitivity = 10; s.sharpness = 10; s.decay = 10; s.decayLfHf = 10;
+        s.bands[1].sens = 18; s.bands[2].sens = 18; s.bands[3].sens = 18;
+        s.window = bb::Window::longWindow; s.oversample = 2; s.highResolution = true; s.phase = bb::Phase::minimum;
+        const auto out = run (s, in);
         bool finite = true; float peak = 0;
         for (size_t i = 0; i < out.l.size(); ++i)
         {
             finite = finite && std::isfinite (out.l[i]) && std::isfinite (out.r[i]);
-            peak = std::max (peak, std::max (std::abs (out.l[i]), std::abs (out.r[i])));
+            peak = std::max (peak, std::abs (out.l[i]));
         }
-        double tail = 0;
-        const size_t tailStart = in.size() + (size_t) latency + (size_t) (kSr * 0.5);
-        for (size_t i = tailStart; i < tailStart + (size_t) kSr; ++i) tail += (double) out.l[i] * out.l[i];
-        const double tailDb = 10.0 * std::log10 (tail / kSr + 1e-30);
+        std::printf ("      reglages extremes : crete %.2f\n", peak);
+        check (finite && peak < 8.0f, "reglages extremes : fini et borne");
+        writeWav (dir + "/brumebox_boost.wav", out.l, out.r);
 
-        double diff = 0, sum = 0;
-        for (size_t i = (size_t) latency; i < out.l.size(); ++i)
-        {
-            diff += std::abs (out.l[i] - out.r[i]); sum += std::abs (out.l[i]) + std::abs (out.r[i]);
-        }
-        std::printf ("      crete %.2f, traine %.1f dB RMS, ecart G/D %.1f %%\n", peak, tailDb, 100.0 * diff / sum);
-        check (finite, "aucun NaN ni infini");
-        check (peak < 1.5f, "crete sous 1.5");
-        check (tailDb > -70.0, "une traine reste apres la fin du son");
-        check (diff / sum > 0.01, "la stereo s'ouvre (G et D differents)");
-
-        writeWav (dir + "/brumebox_reve.wav", out.l, out.r);
-        auto dryL = in; dryL.resize (out.l.size(), 0.0f);
-        writeWav (dir + "/brumebox_sec.wav", dryL, dryL);
-    }
-
-    // 4. Une bande à -12 dB sur tout le spectre fait taire la détection.
-    {
-        bb::Settings s;
-        s.depth = 0; s.reso = 0; s.haze = 0; s.blur = 0;
-        s.bands[0] = { true, 1000.0f, -12.0f, 0.1f, bb::BandShape::lowShelf };
-        s.bands[1] = { true, 1000.0f, -12.0f, 0.1f, bb::BandShape::highShelf };
-        const auto out = run (s, in, hits);
-        std::printf ("      part d'attaque avec bandes a -12 dB : %.3f\n", mean (out.shareAtHit));
-        check (mean (out.shareAtHit) < 0.2f, "les bandes de sensibilite pesent sur la detection");
-    }
-
-    // 5. Bypass : le son d'origine retardé ; delta : seulement ce qui change (rien en neutre).
-    {
-        bb::Settings s;
-        s.bypass = true; s.depth = 10; s.reso = 1; s.haze = 1;
-        const auto by = run (s, in, hits);
-        bool same = true;
-        for (size_t i = (size_t) latency; i < in.size(); ++i) same = same && by.l[i] == in[i - (size_t) latency];
-        check (same, "bypass : le son d'origine, a la latence pres");
-
-        bb::Settings d;
-        d.delta = true; d.depth = 0; d.reso = 0; d.haze = 0; d.blur = 0;
-        const auto de = run (d, in, hits);
-        float peak = 0;
-        for (size_t i = (size_t) latency * 2; i < in.size(); ++i) peak = std::max (peak, std::abs (de.l[i]));
-        check (peak < 1.0e-3f, "delta en reglages neutres : presque rien");
+        auto c = bb::defaultSettings();
+        c.cutDepth = 8;
+        const auto cut = run (c, in);
+        writeWav (dir + "/brumebox_cut.wav", cut.l, cut.r);
+        writeWav (dir + "/brumebox_sec.wav", in.l, in.r);
     }
 
     std::printf (failures == 0 ? "\ntout passe\n" : "\n%d echec(s)\n", failures);

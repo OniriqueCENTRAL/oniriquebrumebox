@@ -81,24 +81,27 @@ BrumeBoxEditor::BrumeBoxEditor (BrumeBoxProcessor& p)
 
     addAndMakeVisible (display);
 
-    // Cut et boost : les deux moitiés d'un même interrupteur.
+    // Cut et boost : les deux moitiés d'un même interrupteur. DEPTH suit le mode : cut depth ou boost depth.
     for (auto* b : { &cutButton, &boostButton })
         addAndMakeVisible (*b);
 
-    modeAttachment = std::make_unique<ParameterAttachment> (*state.getParameter ("boost"), [this] (float value)
+    modeAttachment = std::make_unique<ParameterAttachment> (*state.getParameter ("gain mode"), [this] (float value)
     {
-        cutButton.setToggleState (value < 0.5f, dontSendNotification);
-        boostButton.setToggleState (value >= 0.5f, dontSendNotification);
-        depth.setAccent (value >= 0.5f ? violet : ember);
+        const bool boost = value >= 0.5f;
+        cutButton.setToggleState (! boost, dontSendNotification);
+        boostButton.setToggleState (boost, dontSendNotification);
+        depth.attach (processor.state, boost ? "boost depth" : "cut depth");
+        depth.setAccent (boost ? violet : ember);
     });
     cutButton.onClick = [this] { modeAttachment->setValueAsCompleteGesture (0.0f); };
     boostButton.onClick = [this] { modeAttachment->setValueAsCompleteGesture (1.0f); };
+    addAndMakeVisible (depth);
+    depth.setEnds ("0", "10");
     modeAttachment->sendInitialUpdate();
 
     const std::pair<Knob*, const char*> knobs[] = {
-        { &depth, "depth" }, { &sensitivity, "sensitivity" }, { &release, "release" }, { &tilt, "tilt" }, { &mix, "mix" },
-        { &reso, "reso" }, { &decay, "decay" }, { &brightness, "brightness" },
-        { &haze, "haze" }, { &hazeTime, "hazeTime" }, { &blur, "blur" },
+        { &sensitivity, "sensitivity" }, { &decay, "decay" }, { &sharpness, "sharpness" }, { &decayLfHf, "decay lf/hf" },
+        { &link, "stereo link" }, { &balance, "stereo balance" }, { &mix, "mix" }, { &trim, "trim" },
     };
 
     for (const auto& [knob, id] : knobs)
@@ -107,13 +110,8 @@ BrumeBoxEditor::BrumeBoxEditor (BrumeBoxProcessor& p)
         addAndMakeVisible (*knob);
     }
 
-    depth.setEnds ("0", "10");
-    reso.setEnds ("0", "1");
-    tilt.slider.getProperties().set ("bipolar", true);
-
-    // Ce qui naît des attaques, en violet : les résonateurs et la brume.
-    for (auto* k : { &reso, &decay, &brightness, &haze, &hazeTime, &blur })
-        k->setAccent (violet);
+    for (auto* k : { &decayLfHf, &balance, &trim })
+        k->slider.getProperties().set ("bipolar", true);
 
     auto choice = [this, &state] (ComboBox& box, const String& id, const String& heading)
     {
@@ -124,8 +122,11 @@ BrumeBoxEditor::BrumeBoxEditor (BrumeBoxProcessor& p)
         comboAttachments.push_back (std::make_unique<ComboBoxAttachment> (state, id, box));
         addAndMakeVisible (box);
     };
-    choice (rootBox, "root", "NOTE");
-    choice (chordBox, "chord", "ACCORD");
+    choice (stereoModeBox, "stereo mode", "STEREO MODE");
+    choice (resolutionBox, "resolution", "RESOLUTION");
+    choice (oversampleBox, "oversample", "OVERSAMPLE");
+    choice (windowBox, "window length", "WINDOW");
+    choice (phaseBox, "phase mode", "PHASE");
 
     for (const auto& [button, id] : { std::pair { &deltaButton, "delta" }, { &bypassButton, "bypass" } })
     {
@@ -134,27 +135,24 @@ BrumeBoxEditor::BrumeBoxEditor (BrumeBoxProcessor& p)
         addAndMakeVisible (*button);
     }
 
-    sliderAttachments.push_back (std::make_unique<SliderAttachment> (state, "out", output));
-    addAndMakeVisible (output);
-
-    describe ({ &deltaButton }, fr ("Delta : n'écouter que ce qui change (ce qui est coupé ou ajouté)."));
-    describe ({ &bypassButton }, fr ("Bypass. La latence est gardée : la piste ne se décale pas."));
-    describe ({ &cutButton }, fr ("Cut : les attaques détectées sont baissées, jusqu'à -24 dB."));
-    describe ({ &boostButton }, fr ("Boost : les attaques détectées sont poussées, jusqu'à +12 dB."));
-    describe ({ &depth }, fr ("Depth : combien les attaques sont coupées ou poussées. À 0, elles passent telles quelles, et ne font que frapper les résonateurs."));
-    describe ({ &sensitivity }, fr ("Sensibilité : à quel point une fréquence doit sauter au-dessus de sa moyenne récente pour compter comme attaque. Plus haut, plus de choses sont prises. Ne dépend pas du niveau."));
-    describe ({ &release }, fr ("Retour : le temps qu'une fréquence met à revenir après une attaque. Court, seul le claquement est touché ; long, le début de la note aussi."));
-    describe ({ &tilt }, fr ("Tilt : les aigus (+) ou les graves (-) reviennent plus lentement que le reste."));
-    describe ({ &mix }, fr ("Mix : la part du son traité par rapport au son d'origine."));
-    describe ({ &rootBox }, fr ("Note : la fondamentale de l'accord sur lequel les résonateurs sont accordés."));
-    describe ({ &chordBox }, fr ("Accord : les notes des résonateurs, répétées sur plusieurs octaves."));
-    describe ({ &reso }, fr ("Réso : combien les attaques font sonner les résonateurs. Une batterie se met à chanter l'accord."));
-    describe ({ &decay }, fr ("Durée : le temps que les résonateurs mettent à s'éteindre."));
-    describe ({ &brightness }, fr ("Éclat : sombre, les notes aiguës de l'accord sont courtes et douces ; brillant, elles sont longues et présentes."));
-    describe ({ &haze }, fr ("Brume : une traîne spectrale de tout le son, qui reste quand il s'arrête."));
-    describe ({ &hazeTime }, fr ("Durée : le temps que la brume met à s'effacer."));
-    describe ({ &blur }, fr ("Flou : la phase de la brume, et un peu du son, part au hasard. Le son se dissout."));
-    describe ({ &output }, fr ("Niveau de sortie. Glissez vers le haut ou le bas."));
+    describe ({ &deltaButton }, fr ("Delta : la différence entre le son traité et l'original, pour entendre à quoi BrumeBox réagit. MIX mélange alors l'original et le delta."));
+    describe ({ &bypassButton }, fr ("Bypass doux, pour comparer sans à-coup. Le calcul continue : pour l'économiser, désactivez le plugin dans l'hôte."));
+    describe ({ &cutButton }, fr ("Cut : baisse les transitoires, seulement aux fréquences qui les composent."));
+    describe ({ &boostButton }, fr ("Boost : pousse les transitoires, seulement aux fréquences qui les composent."));
+    describe ({ &depth }, fr ("Depth : la quantité de traitement, cut et boost ayant chacun la sienne. BrumeBox ne dépend pas du niveau d'entrée : il agit selon ce réglage où qu'il soit dans la chaîne."));
+    describe ({ &sensitivity }, fr ("Sensitivity : plus haut, plus de transitoires détectées ; plus bas, seulement les plus fortes. Pour l'entendre : DELTA, beaucoup de DEPTH, puis ce réglage."));
+    describe ({ &decay }, fr ("Decay : le temps qu'une coupe ou un boost met à revenir. À 0, seul le tout début de la transitoire est touché ; au-dessus, la queue aussi. Sous 5 : le plus naturel."));
+    describe ({ &sharpness }, fr ("Sharpness : la largeur (le q) de chaque coupe ou boost. Bas : plus naturel sur les percussions ; haut : pour les sons harmoniques et larges, comme le piano."));
+    describe ({ &decayLfHf }, fr ("Decay LF/HF : sous 5, les graves reviennent plus lentement que les aigus ; au-dessus, l'inverse ; à 5, pareil partout."));
+    describe ({ &stereoModeBox }, fr ("Stereo mode : traiter la gauche et la droite, ou le mid et le side."));
+    describe ({ &link }, fr ("Stereo link : à 100 %, la détection se fait sur les deux canaux ensemble et la même réduction s'applique aux deux ; à 0 %, deux instances mono."));
+    describe ({ &balance }, fr ("Balance : la part de traitement de chaque canal. 100/100 : les deux ; 100/0 : seulement la gauche (ou le mid) ; 0/100 : seulement la droite (ou le side)."));
+    describe ({ &mix }, fr ("Mix : le son d'origine mélangé au son traité. À 100 %, seulement le traité."));
+    describe ({ &trim }, fr ("Trim : le gain du son traité, pour revenir au niveau de l'original."));
+    describe ({ &resolutionBox }, fr ("Resolution : la précision dans le temps. High détecte plus exactement le moment de la transitoire. Gourmand."));
+    describe ({ &oversampleBox }, fr ("Oversample : la réduction calculée plus finement en fréquence, surtout dans les graves. Gourmand."));
+    describe ({ &windowBox }, fr ("Window : le compromis temps / fréquence. Short : presque pas de résonance, idéal pour les clics, moins bon dans le grave. Long : plus doux, pour les sources riches. Medium : entre les deux."));
+    describe ({ &phaseBox }, fr ("Phase : Linear, plus précis pour les coupes chirurgicales, peut pré-sonner dans le grave ; Minimum, sans pré-écho, souvent plus naturel pour les boosts."));
 
     hoverTip.setInterceptsMouseClicks (false, false);
     hoverTip.setAlwaysOnTop (true);
@@ -270,7 +268,7 @@ void BrumeBoxEditor::paintHeader (Graphics& g, Rectangle<int> header)
     const auto area = header.toFloat();
     const auto seconds = (Time::getMillisecondCounterHiRes() - openedAt) * 0.001;
 
-    // Le cramoisi de la gamme, avec un voile violet vers la droite : la brume.
+    // Le cramoisi de la gamme, avec un voile violet vers la droite.
     ColourGradient ground (Colour (0xff2c060b), 0.0f, 0.0f, Colour (0xff24103a), area.getRight(), 0.0f, false);
     ground.addColour (0.30, Colour (0xff7a0e1c));
     ground.addColour (0.65, Colour (0xff4a0c2a));
@@ -361,10 +359,17 @@ void BrumeBoxEditor::paint (Graphics& g)
     g.drawVerticalLine (first.getRight(), (float) first.getY(), (float) first.getBottom());
     g.drawVerticalLine (second.getRight(), (float) second.getY(), (float) second.getBottom());
 
-    // Entre trouver les attaques, et ce qu'on en fait.
-    paintSection (g, fr ("DÉTECTION"), sensitivity.getY() - 10, first.getX() + 18, first.getRight() - 18);
-    paintSection (g, fr ("RÉSONATEURS"), rootBox.getY() - 14, second.getX() + 18, second.getRight() - 18);
-    paintSection (g, "BRUME", haze.getY() - 14, second.getX() + 18, second.getRight() - 18);
+    paintSection (g, "DETECTION", sensitivity.getY() - 10, first.getX() + 18, first.getRight() - 18);
+    paintSection (g, "STEREO", stereoModeBox.getY() - 14, second.getX() + 18, second.getRight() - 18);
+    paintSection (g, "OUTPUT", mix.getY() - 12, second.getX() + 18, second.getRight() - 18);
+    paintSection (g, "ADVANCED", resolutionBox.getY() - 26, second.getX() + 18, second.getRight() - 18);
+
+    // Le nom de chaque menu de l'avancé, au-dessus de lui.
+    g.setColour (theme::haze);
+    g.setFont (capsFont (8.5f));
+    for (auto [box, name] : { std::pair { &resolutionBox, "RESOLUTION" }, { &oversampleBox, "OVERSAMPLE" },
+                              { &windowBox, "WINDOW" }, { &phaseBox, "PHASE" } })
+        g.drawText (name, box->getX() + 4, box->getY() - 13, box->getWidth(), 12, Justification::centredLeft, false);
 }
 
 void BrumeBoxEditor::resized()
@@ -392,46 +397,41 @@ void BrumeBoxEditor::resized()
     const auto small = jlimit (100, 124, (first.getHeight() - 200) / 2);
 
     auto lower = first.removeFromBottom (small);
-    tilt.setBounds (lower.removeFromLeft (lower.getWidth() / 2));
-    mix.setBounds (lower);
+    sharpness.setBounds (lower.removeFromLeft (lower.getWidth() / 2));
+    decayLfHf.setBounds (lower);
     first.removeFromBottom (8);
 
     auto upper = first.removeFromBottom (small);
     sensitivity.setBounds (upper.removeFromLeft (upper.getWidth() / 2));
-    release.setBounds (upper);
+    decay.setBounds (upper);
     first.removeFromBottom (22);
 
     depth.setBounds (first.withSizeKeepingCentre (jmin (first.getWidth(), 164), jmin (first.getHeight(), 186)));
 
-    // Deuxième colonne : les résonateurs, la brume, la sortie.
-    auto second = bounds.removeFromLeft (kSecondWidth).reduced (12, 16);
-
-    output.setBounds (second.removeFromBottom (32));
-    second.removeFromBottom (18);
-    second.removeFromTop (18);
-
-    auto combos = second.removeFromTop (28);
-    rootBox.setBounds (combos.removeFromLeft (78));
-    combos.removeFromLeft (6);
-    chordBox.setBounds (combos);
+    // Deuxième colonne : stéréo, sortie, avancé.
+    auto second = bounds.removeFromLeft (kSecondWidth).reduced (14, 16);
     second.removeFromTop (14);
 
-    // Comme la première colonne : RÉSO en grand, puis ses deux réglages, puis la brume.
-    const auto rowHeight = jlimit (100, 120, (second.getHeight() - 60) / 3);
+    stereoModeBox.setBounds (second.removeFromTop (28));
+    second.removeFromTop (8);
+    const auto rowHeight = jlimit (96, 118, (second.getHeight() - 150) / 2);
+    auto stereoRow = second.removeFromTop (rowHeight);
+    link.setBounds (stereoRow.removeFromLeft (stereoRow.getWidth() / 2));
+    balance.setBounds (stereoRow);
 
-    auto hazeRow = second.removeFromBottom (rowHeight);
-    const auto third = hazeRow.getWidth() / 3;
-    haze.setBounds (hazeRow.removeFromLeft (third));
-    hazeTime.setBounds (hazeRow.removeFromLeft (third));
-    blur.setBounds (hazeRow);
-    second.removeFromBottom (30);
+    // L'avancé en bas : deux rangées de deux menus, chacun avec son nom au-dessus.
+    auto advanced = second.removeFromBottom (90);
+    auto advTop = advanced.removeFromTop (28 + 14).withTrimmedTop (14);
+    auto advBottom = advanced.withTrimmedTop (20).removeFromTop (28);
+    resolutionBox.setBounds (advTop.removeFromLeft (advTop.getWidth() / 2).withTrimmedRight (4));
+    oversampleBox.setBounds (advTop.withTrimmedLeft (4));
+    windowBox.setBounds (advBottom.removeFromLeft (advBottom.getWidth() / 2).withTrimmedRight (4));
+    phaseBox.setBounds (advBottom.withTrimmedLeft (4));
+    second.removeFromBottom (24);
 
-    auto resoRow = second.removeFromBottom (rowHeight);
-    decay.setBounds (resoRow.removeFromLeft (resoRow.getWidth() / 2).withSizeKeepingCentre (third + 10, rowHeight));
-    brightness.setBounds (resoRow.withSizeKeepingCentre (third + 10, rowHeight));
-    second.removeFromBottom (6);
-
-    reso.setBounds (second.withSizeKeepingCentre (jmin (second.getWidth(), 150), jmin (second.getHeight(), 170)));
+    auto outputRow = second.removeFromBottom (rowHeight);
+    mix.setBounds (outputRow.removeFromLeft (outputRow.getWidth() / 2));
+    trim.setBounds (outputRow);
 
     display.setBounds (bounds.reduced (14, 12));
 }
