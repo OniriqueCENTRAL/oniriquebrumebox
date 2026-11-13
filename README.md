@@ -18,7 +18,7 @@ et se teste hors ligne ; la FFT est celle de ResoBox.
 |---|---|
 | Moteur (STFT 2048 / hop 512, détection, résonateurs, brume) | fait, testé hors ligne |
 | Plugin VST3 / AU, paramètres automatisables | compile sur Mac (universel arm64 + x86_64) |
-| Licence ONIRIQUE (`brumebox`) | branchée ; fiche CENTRAL « fondateurs seulement », 1.0.0 Mac en ligne |
+| Licence ONIRIQUE (`brumebox`) | branchée ; fiche CENTRAL « fondateurs seulement », 1.0.1 Mac en ligne |
 | Interface | faite (`snapshot.png`), vérifiée sur capture (`brumebox_snapshot`) |
 | Version Windows | non compilée |
 | Écoute dans un DAW | **pas encore faite** |
