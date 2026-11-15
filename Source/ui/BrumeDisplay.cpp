@@ -392,12 +392,7 @@ float BrumeDisplay::columnValue (const std::vector<float>& values, float x, bool
 //==============================================================================
 void BrumeDisplay::paint (Graphics& g)
 {
-    const auto bounds = getLocalBounds().toFloat().reduced (0.5f);
-
-    g.setGradientFill (ColourGradient (Colour (0xff120a0d), 0.0f, bounds.getY(), Colour (0xff1d0a0e), 0.0f, bounds.getBottom(), false));
-    g.fillRoundedRectangle (bounds, 14.0f);
-    g.setColour (line);
-    g.drawRoundedRectangle (bounds, 14.0f, 1.0f);
+    // posé sur le fond, sans cadre
 
     const auto plot = plotArea();
     {

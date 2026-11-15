@@ -173,11 +173,11 @@ BrumeBoxEditor::BrumeBoxEditor (BrumeBoxProcessor& p)
     describe ({ &presetBox }, fr ("Les presets : ceux d'usine par catégorie, puis les vôtres (Documents/Onirique/BrumeBox/Presets, rangés par sous-dossier)."));
     describe ({ &saveButton }, fr ("Enregistre les réglages comme preset personnel : tapez son nom à la place du preset affiché, puis Entrée. Échap annule."));
     describe ({ &openButton }, fr ("Ouvre un fichier .preset où qu'il soit. Les fichiers .preset de spiff s'ouvrent aussi : les paramètres portent les mêmes noms."));
-    describe ({ &deltaButton }, fr ("Delta : la différence entre le son traité et l'original, pour entendre à quoi BrumeBox réagit. MIX mélange alors l'original et le delta."));
+    describe ({ &deltaButton }, fr ("Delta : la différence entre le son traité et l'original, pour entendre à quoi Shaper réagit. MIX mélange alors l'original et le delta."));
     describe ({ &bypassButton }, fr ("Bypass doux, pour comparer sans à-coup. Le calcul continue : pour l'économiser, désactivez le plugin dans l'hôte."));
     describe ({ &cutButton }, fr ("Cut : baisse les transitoires, seulement aux fréquences qui les composent."));
     describe ({ &boostButton }, fr ("Boost : pousse les transitoires, seulement aux fréquences qui les composent."));
-    describe ({ &depth }, fr ("Depth : la quantité de traitement, cut et boost ayant chacun la sienne. BrumeBox ne dépend pas du niveau d'entrée : il agit selon ce réglage où qu'il soit dans la chaîne."));
+    describe ({ &depth }, fr ("Depth : la quantité de traitement, cut et boost ayant chacun la sienne. Shaper ne dépend pas du niveau d'entrée : il agit selon ce réglage où qu'il soit dans la chaîne."));
     describe ({ &sensitivity }, fr ("Sensitivity : plus haut, plus de transitoires détectées ; plus bas, seulement les plus fortes. Pour l'entendre : DELTA, beaucoup de DEPTH, puis ce réglage."));
     describe ({ &decay }, fr ("Decay : le temps qu'une coupe ou un boost met à revenir. À 0, seul le tout début de la transitoire est touché ; au-dessus, la queue aussi. Sous 5 : le plus naturel."));
     describe ({ &sharpness }, fr ("Sharpness : la largeur (le q) de chaque coupe ou boost. Bas : plus naturel sur les percussions ; haut : pour les sons harmoniques et larges, comme le piano."));
@@ -198,10 +198,10 @@ BrumeBoxEditor::BrumeBoxEditor (BrumeBoxProcessor& p)
 
     setResizable (true, true);
     setResizeLimits (1220, 640, 2000, 1250);
-    const auto opening = window::openingSize ({}, "ONIRIQUE BRUMEBOX", { 1300, 740 }, { 1220, 640 }, { 2000, 1250 });
+    const auto opening = window::openingSize ({}, "ONIRIQUE SHAPER", { 1300, 740 }, { 1220, 640 }, { 2000, 1250 });
     setSize (opening.x, opening.y);
 
-    licenseOverlay = std::make_unique<license::Overlay> ("ONIRIQUE BRUMEBOX", processor.license);
+    licenseOverlay = std::make_unique<license::Overlay> ("ONIRIQUE SHAPER", processor.license);
     addAndMakeVisible (*licenseOverlay);
     resized();
 
@@ -210,7 +210,7 @@ BrumeBoxEditor::BrumeBoxEditor (BrumeBoxProcessor& p)
 
 BrumeBoxEditor::~BrumeBoxEditor()
 {
-    window::rememberOnThisComputer ("ONIRIQUE BRUMEBOX", getWidth(), getHeight());
+    window::rememberOnThisComputer ("ONIRIQUE SHAPER", getWidth(), getHeight());
     setLookAndFeel (nullptr);
 }
 
@@ -351,7 +351,7 @@ void BrumeBoxEditor::openPresetFile()
     {
         const auto file = fc.getResult();
         if (file.existsAsFile() && ! processor.loadPresetFile (file))
-            AlertWindow::showMessageBoxAsync (MessageBoxIconType::WarningIcon, "BRUMEBOX",
+            AlertWindow::showMessageBoxAsync (MessageBoxIconType::WarningIcon, "SHAPER",
                                               fr ("Ce fichier ne contient pas de réglages lisibles."));
         presetBox.setText (processor.getPresetName(), dontSendNotification);
     });
@@ -362,7 +362,7 @@ int BrumeBoxEditor::titleRight() const
 {
     return kTitleLeft
            + roundToInt (GlyphArrangement::getStringWidth (titleFont (true), "ONIRIQUE")
-                         + GlyphArrangement::getStringWidth (titleFont (false), "BRUMEBOX"))
+                         + GlyphArrangement::getStringWidth (titleFont (false), "SHAPER"))
            + 12;
 }
 
@@ -394,7 +394,7 @@ void BrumeBoxEditor::paintHeader (Graphics& g, Rectangle<int> header)
     g.drawText ("ONIRIQUE", area.withTrimmedLeft ((float) kTitleLeft).withWidth (nameWidth + 4.0f), Justification::centredLeft, false);
     g.setColour (Colour (0xffd9c8ff));
     g.setFont (titleFont (false));
-    g.drawText ("BRUMEBOX", area.withTrimmedLeft ((float) kTitleLeft + nameWidth + 10.0f).withWidth (260.0f), Justification::centredLeft, false);
+    g.drawText ("SHAPER", area.withTrimmedLeft ((float) kTitleLeft + nameWidth + 10.0f).withWidth (260.0f), Justification::centredLeft, false);
 
     // Des étoiles à côté, chacune respirant à son rythme.
     struct Spark { float x, y, radius, rate, offset; };
@@ -451,13 +451,7 @@ void BrumeBoxEditor::paint (Graphics& g)
     const auto first = body.removeFromLeft (kColumnWidth);
     const auto second = body.removeFromLeft (kSecondWidth);
 
-    g.setColour (deep);
-    g.fillRect (first);
-
-    // La deuxième colonne, d'un rouge qui tire vers le violet.
-    g.setGradientFill (ColourGradient (Colour (0xff1a0a14), 0.0f, (float) second.getY(), Colour (0xff160a1c), 0.0f, (float) second.getBottom(), false));
-    g.fillRect (second);
-
+    // Les colonnes sont posées sur le fond : seuls des traits les séparent.
     g.setColour (line);
     g.drawVerticalLine (first.getRight(), (float) first.getY(), (float) first.getBottom());
     g.drawVerticalLine (second.getRight(), (float) second.getY(), (float) second.getBottom());
