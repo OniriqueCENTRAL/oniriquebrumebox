@@ -46,7 +46,7 @@ jobs:
           if [ "${{ matrix.name }}" = "Windows" ]; then
             cmake -B build -A x64 2>&1 | tee configure.log
           else
-            cmake -B build -G "${{ matrix.generator }}" 2>&1 | tee configure.log
+            cmake -B build -G "${{ matrix.generator }}" -DBRUMEBOX_COPY_AFTER_BUILD=ON 2>&1 | tee configure.log
           fi
 
       - name: Build
