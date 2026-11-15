@@ -19,7 +19,7 @@ ligne ; la FFT est celle de ResoBox.
 | Licence ONIRIQUE (`brumebox`) | branchée ; fiche CENTRAL « fondateurs seulement », démo et image en ligne |
 | Presets | 28 d'usine, personnels, ouverture de fichiers |
 | Interface | faite (`snapshot.png`), vérifiée sur capture (`brumebox_snapshot`) |
-| Version Windows | non compilée |
+| Version Windows | compile (Visual Studio 2022, x64) ; 1.0.2 publiée sur CENTRAL |
 | Écoute dans un DAW | **pas encore faite** |
 
 Latence : (FFT + fenêtre) / 2, soit 2048 échantillons en fenêtre medium sans oversample à 48 kHz,
