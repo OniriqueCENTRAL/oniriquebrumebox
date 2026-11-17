@@ -51,8 +51,8 @@ inline const Factory factory[] = {
 
     // Voix
     { "VOIX", "Voix : bruits de bouche", {
-        { "cut depth", 7.0f }, { "sensitivity", 7.0f }, { "sharpness", 8.0f }, { "decay", 0.5f }, { "window length", 0.0f },
-        { "band0 on", 1.0f }, { "band0 freq", 2000.0f }, { "band0 mode", 1.0f } } },
+        { "cut depth", 7.0f }, { "sensitivity", 5.0f }, { "sharpness", 8.0f }, { "decay", 0.5f }, { "window length", 0.0f },
+        { "band0 on", 1.0f }, { "band0 freq", 3000.0f }, { "band0 mode", 2.0f } } },
     { "VOIX", "Voix : plosives", {
         { "cut depth", 6.0f }, { "sensitivity", 5.0f }, { "sharpness", 2.0f }, { "decay", 3.0f },
         { "band1 mode", 0.0f }, { "band1 freq", 120.0f }, { "band1 sens", 6.0f },
@@ -104,6 +104,19 @@ inline const Factory factory[] = {
         { "gain mode", 1.0f }, { "boost depth", 4.0f }, { "decay", 3.0f } } },
     { "IMAGE", "Centre plus percutant", {
         { "stereo mode", 1.0f }, { "stereo balance", 0.0f }, { "gain mode", 1.0f }, { "boost depth", 3.0f }, { "decay", 2.5f } } },
+
+    // Mix : les usages de spiff (mettre en avant ou en arrière sans changer le volume, de l'expression, de la vie)
+    { "MIX", "Instrument : plus d'expression", {
+        { "gain mode", 1.0f }, { "boost depth", 4.0f }, { "sensitivity", 4.5f }, { "sharpness", 4.0f }, { "decay", 2.5f },
+        { "phase mode", 1.0f } } },
+    { "MIX", "Mettre en avant", {
+        { "gain mode", 1.0f }, { "boost depth", 4.0f }, { "sensitivity", 5.0f }, { "decay", 1.0f }, { "decay lf/hf", 4.0f }, { "phase mode", 1.0f },
+        { "trim", -1.0f } } },
+    { "MIX", "Mettre en arrière", {
+        { "cut depth", 4.0f }, { "sensitivity", 5.0f }, { "decay", 1.0f }, { "decay lf/hf", 4.0f }, { "trim", 1.0f } } },
+    { "MIX", "Mix trop compressé : rendre la dynamique", {
+        { "gain mode", 1.0f }, { "boost depth", 5.0f }, { "sensitivity", 4.0f }, { "sharpness", 2.5f }, { "decay", 4.0f },
+        { "decay lf/hf", 4.5f }, { "oversample", 1.0f }, { "phase mode", 1.0f } } },
 
     // Master
     { "MASTER", "Transitoires domptées", {

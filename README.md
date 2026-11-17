@@ -17,7 +17,7 @@ ligne ; la FFT est celle de ResoBox.
 | Moteur (fenêtres, oversample, résolution, phase linéaire / minimale, stéréo, écoute de bande) | fait, testé hors ligne |
 | Plugin VST3 / AU, paramètres automatisables | compile sur Mac (universel arm64 + x86_64) |
 | Licence ONIRIQUE (`brumebox`) | branchée ; fiche CENTRAL « fondateurs seulement », démo et image en ligne |
-| Presets | 28 d'usine, personnels, ouverture de fichiers |
+| Presets | 32 d'usine, personnels, ouverture de fichiers |
 | Interface | faite (`snapshot.png`), vérifiée sur capture (`shaper_snapshot`) |
 | Version Windows | compile (Visual Studio 2022, x64) ; 1.0.2 publiée sur CENTRAL |
 | Écoute dans un DAW | **pas encore faite** |
@@ -60,10 +60,23 @@ Capture sans hôte : `cmake --build build --target shaper_snapshot`, puis
 `build/shaper_snapshot snapshot.png [largeur hauteur] [--boost] [--closed] [--scale 2] [--tip x y]`.
 `build/shaper_snapshot --selftest` vérifie les presets (identifiants, enregistrer puis rouvrir, fichier spiff).
 
+## Ce qu'il fait (les usages de spiff)
+
+- **Retirer les bruits de bouche** et autres petits bruits : preset « Voix : bruits de bouche ».
+- **Donner de la clarté et de l'expression à un instrument** : « Instrument : plus d'expression ».
+- **Mettre un son en avant ou en arrière sans changer son volume** : « Mettre en avant », « Mettre en arrière ».
+- **Rendre dynamique et détail à un mix trop compressé** : « Mix trop compressé : rendre la dynamique ».
+
+`shaper_snapshot --selftest` mesure les quatre sur le plugin et ses presets, avec des sons fabriqués
+(voix et claquements, corde pincée, mix passé dans un compresseur rapide). Dernière mesure :
+claquements -14,5 dB et voix intacte à -25 dB près ; attaques +3,7 dB, notes tenues 0 dB ;
+en avant +2,7 dB / en arrière -4,6 dB d'attaque pour moins de 0,2 dB de volume ; mix écrasé
++3,4 dB de crête sur moyenne. Pas encore vérifié à l'oreille sur de vrais enregistrements.
+
 ## Presets
 
-28 presets d'usine ONIRIQUE (`Source/Presets.h`), par catégorie : divers, batterie, voix, basse, guitare,
-synthés et claviers, image, master. Les presets personnels sont des fichiers `.preset` dans
+32 presets d'usine ONIRIQUE (`Source/Presets.h`), par catégorie : divers, batterie, voix, basse, guitare,
+synthés et claviers, image, mix, master. Les presets personnels sont des fichiers `.preset` dans
 `Documents/Onirique/Shaper/Presets` (rangés par sous-dossier). Un fichier XML aux
 `<PARAM id="..." value="..."/>` portant nos identifiants (donc aussi un `.preset` de spiff) se lit avec
 `loadPresetFile` ; il n'y a plus de bouton OPEN.

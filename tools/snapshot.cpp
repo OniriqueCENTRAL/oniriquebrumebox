@@ -127,6 +127,262 @@ struct Director
 };
 } // namespace
 
+/** Les quatre usages de spiff, mesurés sur le plugin et ses presets d'usine, avec des sons fabriqués :
+    une voix avec des bruits de bouche, une corde pincée, un mix écrasé par un compresseur. */
+namespace usages
+{
+using Buffer = std::vector<float>;
+
+float noise()
+{
+    static uint32_t rng = 7;
+    rng = rng * 1664525u + 1013904223u;
+    return (float) (rng >> 8) / 8388608.0f - 1.0f;
+}
+
+/** Une voix : 140 Hz avec vibrato et harmoniques qui décroissent, des syllabes de 300 ms. */
+Buffer voice (int n)
+{
+    Buffer v ((size_t) n);
+    double phase = 0.0;
+    for (int i = 0; i < n; ++i)
+    {
+        const double t = i / kSr;
+        phase += 2.0 * juce::MathConstants<double>::pi * 140.0 * (1.0 + 0.01 * std::sin (2.0 * juce::MathConstants<double>::pi * 5.0 * t)) / kSr;
+        float s = 0.0f;
+        for (int h = 1; h <= 30; ++h)
+            s += (float) std::sin (phase * h) / (float) h * (h > 3 && h < 8 ? 1.6f : 1.0f);
+        const double syl = std::fmod (t, 0.4);
+        const float env = (float) (std::min (1.0, syl / 0.04) * std::min (1.0, (0.36 - syl) / 0.05));
+        v[(size_t) i] = 0.12f * s * std::max (0.0f, env);
+    }
+    return v;
+}
+
+/** Les bruits de bouche : un claquement de 1 ms, aigu, aux instants donnés. */
+std::vector<int> addClicks (Buffer& v)
+{
+    std::vector<int> at;
+    for (double t = 0.53; t < (double) v.size() / kSr - 0.1; t += 0.71)
+    {
+        const int start = (int) (t * kSr);
+        at.push_back (start);
+        float prev = 0.0f;
+        for (int i = 0; i < 48; ++i)
+        {
+            const float white = noise();
+            const float hp = white - prev;   // de l'aigu, comme un « tss » de langue
+            prev = white;
+            v[(size_t) (start + i)] += 0.25f * hp * std::exp (-(float) i / 12.0f);
+        }
+    }
+    return at;
+}
+
+/** Une corde pincée toutes les 400 ms : un claquement de médiator puis une note qui s'éteint. */
+Buffer pluck (int n, std::vector<int>& attacks)
+{
+    Buffer v ((size_t) n);
+    for (int start = (int) (0.2 * kSr); start < n; start += (int) (0.4 * kSr))
+    {
+        attacks.push_back (start);
+        const double hz = 196.0 * std::pow (2.0, (attacks.size() % 5) / 12.0);
+        for (int i = 0; start + i < n && i < (int) (0.4 * kSr); ++i)
+        {
+            const double t = i / kSr;
+            float s = 0.0f;
+            for (int h = 1; h <= 12; ++h)
+                s += (float) (std::sin (2.0 * juce::MathConstants<double>::pi * hz * h * t) / h * std::exp (-t * (2.0 + h)));
+            s += 0.8f * noise() * std::exp (-(float) i / 90.0f);
+            v[(size_t) (start + i)] += 0.15f * s;
+        }
+    }
+    return v;
+}
+
+/** Un mix : batterie (grosse caisse, caisse claire) sur un accord, puis écrasé par un compresseur rapide. */
+Buffer squashedMix (int n)
+{
+    Buffer v ((size_t) n);
+    for (int i = 0; i < n; ++i)
+    {
+        const double t = i / kSr;
+        const double beat = std::fmod (t, 0.25);
+        float s = 0.0f;
+        for (double hz : { 110.0, 164.8, 220.0, 277.2, 329.6 })
+            s += 0.05f * (float) std::sin (2.0 * juce::MathConstants<double>::pi * hz * t);
+        s += 0.6f * (float) std::sin (2.0 * juce::MathConstants<double>::pi * 55.0 * beat * (1.0 + 4.0 * std::exp (-beat * 40.0))) * (float) std::exp (-beat * 18.0);
+        if (((int) (t / 0.25)) % 2 == 1)
+            s += 0.4f * noise() * (float) std::exp (-beat * 30.0);
+        v[(size_t) i] = s;
+    }
+    // le compresseur : 2 ms d'attaque, 60 ms de relâchement, ratio 10, seuil bas ; le gain remonté ensuite
+    float env = 0.0f;
+    for (auto& s : v)
+    {
+        const float a = std::abs (s);
+        env += (a - env) * (a > env ? 1.0f - std::exp (-1.0f / (0.002f * (float) kSr)) : 1.0f - std::exp (-1.0f / (0.06f * (float) kSr)));
+        const float over = juce::Decibels::gainToDecibels (std::max (env, 1.0e-6f)) + 24.0f;
+        s *= juce::Decibels::decibelsToGain (over > 0.0f ? -over * 0.9f : 0.0f) * 3.0f;
+    }
+    return v;
+}
+
+int presetIndex (const char* name)
+{
+    for (int i = 0; i < (int) std::size (onirique::presets::factory); ++i)
+        if (juce::String::fromUTF8 (onirique::presets::factory[i].name) == juce::String::fromUTF8 (name))
+            return i;
+    return -1;
+}
+
+/** Le son passé par le plugin avec un preset, recalé de sa latence (mono : les deux canaux pareils). */
+Buffer process (onirique::ShaperProcessor& p, const char* preset, const Buffer& in)
+{
+    const int index = presetIndex (preset);
+    jassert (index >= 0);
+    p.loadFactoryPreset (index);
+    p.prepareToPlay (kSr, kBlock);
+    const int latency = p.getLatencySamples();
+    const int n = (int) in.size();
+
+    Buffer out ((size_t) n, 0.0f);
+    juce::AudioBuffer<float> block (2, kBlock);
+    juce::MidiBuffer midi;
+    for (int pos = 0; pos < n + latency; pos += kBlock)
+    {
+        const int len = kBlock;
+        for (int c = 0; c < 2; ++c)
+            for (int i = 0; i < len; ++i)
+                block.setSample (c, i, pos + i < n ? in[(size_t) (pos + i)] : 0.0f);
+        p.processBlock (block, midi);
+        for (int i = 0; i < len; ++i)
+            if (const int k = pos + i - latency; k >= 0 && k < n)
+                out[(size_t) k] = block.getSample (0, i);
+    }
+    p.releaseResources();
+    return out;
+}
+
+double energyDb (const Buffer& v, int from, int to)
+{
+    double e = 1.0e-20;
+    for (int i = std::max (0, from); i < std::min ((int) v.size(), to); ++i)
+        e += (double) v[(size_t) i] * v[(size_t) i];
+    return 10.0 * std::log10 (e);
+}
+
+/** L'énergie autour de chaque instant (de `before` avant à `after` après), additionnée, en dB. */
+double aroundDb (const Buffer& v, const std::vector<int>& at, int before, int after)
+{
+    double e = 1.0e-20;
+    for (int a : at)
+        for (int i = std::max (0, a - before); i < std::min ((int) v.size(), a + after); ++i)
+            e += (double) v[(size_t) i] * v[(size_t) i];
+    return 10.0 * std::log10 (e);
+}
+
+/** Le facteur de crête : la moyenne des pics de chaque quart de seconde sur le niveau moyen, en dB. */
+double crestDb (const Buffer& v)
+{
+    const int span = (int) (0.25 * kSr);
+    double peaks = 0.0, rms = 0.0;
+    int count = 0;
+    for (int s = span; s + span <= (int) v.size(); s += span, ++count)
+    {
+        float pk = 0.0f;
+        for (int i = s; i < s + span; ++i)
+            pk = std::max (pk, std::abs (v[(size_t) i]));
+        peaks += pk;
+    }
+    for (int i = span; i < (int) v.size(); ++i)
+        rms += (double) v[(size_t) i] * v[(size_t) i];
+    rms = std::sqrt (rms / (double) (v.size() - (size_t) span));
+    return 20.0 * std::log10 (peaks / std::max (1, count) / rms);
+}
+
+template <typename Check>
+void run (onirique::ShaperProcessor& p, Check&& check)
+{
+    const int n = (int) (6.0 * kSr);
+    const int skip = (int) (0.4 * kSr);   // le temps que la détection apprenne le son
+
+    // 1. Les bruits de bouche s'en vont, la voix reste.
+    {
+        const auto clean = voice (n);
+        auto dirty = clean;
+        auto clicks = addClicks (dirty);
+        clicks.erase (std::remove_if (clicks.begin(), clicks.end(), [&] (int c) { return c < skip; }), clicks.end());
+        const auto out = process (p, "Voix : bruits de bouche", dirty);
+
+        // ce qui reste du bruit : la sortie moins la voix propre, autour de chaque claquement
+        Buffer residue ((size_t) n), noiseIn ((size_t) n);
+        for (int i = 0; i < n; ++i)
+        {
+            residue[(size_t) i] = out[(size_t) i] - clean[(size_t) i];
+            noiseIn[(size_t) i] = dirty[(size_t) i] - clean[(size_t) i];
+        }
+        const double clickDrop = aroundDb (residue, clicks, 0, 240) - aroundDb (noiseIn, clicks, 0, 240);
+        // la voix loin des claquements : le reste du signal
+        std::vector<bool> nearClick ((size_t) n, false);
+        for (int c : clicks)
+            for (int i = std::max (0, c - 2400); i < std::min (n, c + 2400); ++i)
+                nearClick[(size_t) i] = true;
+        double eIn = 1e-20, eErr = 1e-20;
+        for (int i = skip; i < n; ++i)
+            if (! nearClick[(size_t) i])
+            {
+                eIn += (double) clean[(size_t) i] * clean[(size_t) i];
+                eErr += (double) (out[(size_t) i] - clean[(size_t) i]) * (out[(size_t) i] - clean[(size_t) i]);
+            }
+        const double voiceKept = 10.0 * std::log10 (eIn / eErr);
+        std::printf ("      bruits de bouche : %.1f dB sur les claquements, voix intacte a %.1f dB pres\n", clickDrop, voiceKept);
+        check (clickDrop < -6.0, "usage 1 : « Voix : bruits de bouche » baisse les claquements de plus de 6 dB");
+        check (voiceKept > 20.0, "usage 1 : la voix entre les claquements reste la meme (ecart sous -20 dB)");
+    }
+
+    // 2. De la clarté et de l'expression : l'attaque de chaque note ressort, la note tenue ne bouge pas.
+    {
+        std::vector<int> attacks;
+        const auto in = pluck (n, attacks);
+        attacks.erase (std::remove_if (attacks.begin(), attacks.end(), [&] (int c) { return c < skip; }), attacks.end());
+        const auto out = process (p, "Instrument : plus d'expression", in);
+        const double attackUp = aroundDb (out, attacks, 0, 480) - aroundDb (in, attacks, 0, 480);
+        std::vector<int> tails;
+        for (int a : attacks) tails.push_back (a + (int) (0.15 * kSr));
+        const double tailMove = aroundDb (out, tails, 0, (int) (0.15 * kSr)) - aroundDb (in, tails, 0, (int) (0.15 * kSr));
+        std::printf ("      expression : attaques %+.1f dB, notes tenues %+.1f dB\n", attackUp, tailMove);
+        check (attackUp > 2.0, "usage 2 : « Instrument : plus d'expression » fait ressortir les attaques de plus de 2 dB");
+        check (std::abs (tailMove) < 1.0, "usage 2 : les notes tenues ne bougent pas (moins de 1 dB)");
+    }
+
+    // 3. En avant ou en arrière, sans changer le volume.
+    {
+        std::vector<int> attacks;
+        const auto in = pluck (n, attacks);
+        attacks.erase (std::remove_if (attacks.begin(), attacks.end(), [&] (int c) { return c < skip; }), attacks.end());
+        const auto front = process (p, "Mettre en avant", in);
+        const auto back = process (p, "Mettre en arrière", in);
+        const double inAttack = aroundDb (in, attacks, 0, 480);
+        const double frontAttack = aroundDb (front, attacks, 0, 480) - inAttack, backAttack = aroundDb (back, attacks, 0, 480) - inAttack;
+        const double frontLevel = energyDb (front, skip, n) - energyDb (in, skip, n), backLevel = energyDb (back, skip, n) - energyDb (in, skip, n);
+        std::printf ("      en avant : attaques %+.1f dB, volume %+.2f dB ; en arriere : attaques %+.1f dB, volume %+.2f dB\n",
+                     frontAttack, frontLevel, backAttack, backLevel);
+        check (frontAttack > 2.0 && backAttack < -2.0, "usage 3 : « Mettre en avant / en arriere » deplacent les attaques de plus de 2 dB");
+        check (std::abs (frontLevel) < 1.0 && std::abs (backLevel) < 1.0, "usage 3 : le volume d'ensemble bouge de moins de 1 dB");
+    }
+
+    // 4. De la dynamique et du détail dans un mix trop compressé.
+    {
+        const auto in = squashedMix (n);
+        const auto out = process (p, "Mix trop compressé : rendre la dynamique", in);
+        const double before = crestDb (in), after = crestDb (out);
+        std::printf ("      mix ecrase : crete / moyenne %.1f dB -> %.1f dB\n", before, after);
+        check (after - before > 1.5, "usage 4 : « Mix trop compresse » rend plus de 1,5 dB de dynamique (crete sur moyenne)");
+    }
+}
+} // namespace usages
+
 /** Les presets sans fenêtre : chaque identifiant existe, enregistrer puis rouvrir rend les mêmes valeurs,
     et un fichier .preset de spiff s'ouvre. */
 int selftest()
@@ -178,6 +434,8 @@ int selftest()
         p->setStateInformation (old.getData(), (int) old.getSize());
         check (p->readSettings().boost, "un projet BrumeBox s'ouvre avec ses reglages");
     }
+
+    usages::run (*p, check);
 
     const juce::File spiff ("/Library/Application Support/oeksound/spiff/Presets/full reset.preset");
     if (spiff.existsAsFile())
