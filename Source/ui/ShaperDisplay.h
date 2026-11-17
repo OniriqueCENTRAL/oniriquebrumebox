@@ -76,7 +76,7 @@ private:
     /** Comme sur ONIRIQUE EQ : 384 points sur l'axe des fréquences, chacun la moyenne des bins à 1/12 d'octave
         autour (entre deux bins dans les graves), et une courbe lisse qui passe par eux. */
     static constexpr int kPoints = 384;
-    std::array<float, kPoints> sample (const std::vector<float>&) const;
+    std::array<float, kPoints> sample (const std::vector<float>&, bool tilt = true) const;
     Path smoothPath (const std::array<float, kPoints>& ys, bool closeToBottom, float bottom) const;
 
     ShaperProcessor& processor;

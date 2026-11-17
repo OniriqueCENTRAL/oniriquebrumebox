@@ -446,10 +446,10 @@ int ShaperDisplay::nodeAt (Point<float> p) const
     return best;
 }
 
-std::array<float, ShaperDisplay::kPoints> ShaperDisplay::sample (const std::vector<float>& values) const
+std::array<float, ShaperDisplay::kPoints> ShaperDisplay::sample (const std::vector<float>& values, bool tilt) const
 {
     std::array<float, kPoints> out;
-    out.fill (kSpectrumFloor);
+    out.fill (tilt ? kSpectrumFloor : 0.0f);
     const int last = (int) values.size() - 1;
     if (last < 1)
         return out;
@@ -474,7 +474,8 @@ std::array<float, ShaperDisplay::kPoints> ShaperDisplay::sample (const std::vect
             out[(size_t) i] = sum / (float) (k1 - k0 + 1);
         }
         // Une pente de +4,5 dB par octave, pour que le spectre se lise comme on l'entend.
-        out[(size_t) i] += 4.5f * std::log2 (hz / 1000.0f);
+        if (tilt)
+            out[(size_t) i] += 4.5f * std::log2 (hz / 1000.0f);
     }
     return out;
 }
@@ -571,6 +572,24 @@ void ShaperDisplay::paintSpectrum (Graphics& g, Rectangle<float> plot)
     g.fillPath (smoothPath (yOut, true, plot.getBottom()));
     g.setColour (pale.withAlpha (0.35f));
     g.strokePath (smoothPath (yIn, false, 0.0f), PathStrokeType (1.6f, PathStrokeType::curved));
+
+    // Ce qui est coupé, pendu au haut de l'écran (ce qui est poussé, monté du bas), comme sur spiff :
+    // 0 au bord, 30 dB à mi-hauteur. On voit d'un coup d'œil où Shaper agit, et de combien.
+    const auto gain = sample (gainDb, false);
+    const float edge = settings.boost ? plot.getBottom() : plot.getY();
+    std::array<float, kPoints> yGain;
+    for (int i = 0; i < kPoints; ++i)
+        yGain[(size_t) i] = edge + (settings.boost ? -1.0f : 1.0f) * jmin (30.0f, std::abs (gain[(size_t) i])) / 30.0f * plot.getHeight() * 0.5f;
+    Path change = smoothPath (yGain, false, 0.0f);
+    Path area (change);
+    area.lineTo (plot.getRight(), edge);
+    area.lineTo (plot.getX(), edge);
+    area.closeSubPath();
+    const auto lit = onirique::look::emberPink;
+    g.setGradientFill (ColourGradient (lit.withAlpha (0.55f), 0.0f, edge, lit.withAlpha (0.12f), 0.0f, plot.getCentreY(), false));
+    g.fillPath (area);
+    g.setColour (lit);
+    g.strokePath (change, PathStrokeType (1.4f, PathStrokeType::curved));
 }
 
 void ShaperDisplay::paintCurve (Graphics& g, Rectangle<float> plot)
@@ -655,7 +674,8 @@ void ShaperDisplay::paintReadouts (Graphics& g, Rectangle<float> plot)
         float x = plot.getX();
         const float y = plot.getY() - 20.0f;
         g.setFont (monoFont (10.0f));
-        for (auto [colour, text] : { std::pair { ember, "SENSITIVITY" }, { ember.withAlpha (0.55f), "OUTPUT" }, { pale.withAlpha (0.6f), "INPUT" } })
+        for (auto [colour, text] : { std::pair { ember, "SENSITIVITY" }, { onirique::look::emberPink, settings.boost ? "BOOST" : "CUT" },
+                                         { ember.withAlpha (0.55f), "OUTPUT" }, { pale.withAlpha (0.6f), "INPUT" } })
         {
             g.setColour (colour);
             g.fillRoundedRectangle (Rectangle<float> (x, y + 4.5f, 14.0f, 3.0f), 1.5f);
@@ -823,7 +843,7 @@ String ShaperDisplay::descriptionAt (Point<int> at) const
         return fr ("Glissez pour la fréquence et la sensibilité ; Cmd (Ctrl) en glissant ou la molette pour la largeur ; Alt en glissant pour l'écouter ; double-clic pour l'éteindre ou la rallumer.");
 
     if (plotArea().contains (at.toFloat()))
-        return fr ("Le trait pâle : le spectre qui entre. La surface rouge : celui qui sort ; l'écart entre les deux, c'est ce que Shaper coupe (ou pousse) en ce moment. La ligne rouge lumineuse : la courbe de sensibilité, une pondération de la détection et non un EQ.");
+        return fr ("En rose, pendu au haut de l'écran : ce que Shaper coupe en ce moment, fréquence par fréquence (en boost, ce qu'il pousse, monté du bas), jusqu'à 30 dB à mi-hauteur. Le trait pâle : le spectre qui entre ; la surface rouge : celui qui sort. La ligne rouge lumineuse : la courbe de sensibilité, une pondération de la détection et non un EQ.");
 
     return {};
 }

@@ -114,3 +114,14 @@ add_executable(shaper_demo EXCLUDE_FROM_ALL tools/demo.cpp)
 target_include_directories(shaper_demo PRIVATE $<TARGET_PROPERTY:OniriqueShaper,INCLUDE_DIRECTORIES>)
 target_compile_definitions(shaper_demo PRIVATE $<TARGET_PROPERTY:OniriqueShaper,COMPILE_DEFINITIONS>)
 target_link_libraries(shaper_demo PRIVATE OniriqueShaper shaper_core ShaperAssets)
+
+# Un outil de développement : passe les mêmes sons dans n'importe quel VST3 (Shaper, spiff...) et compare. À la demande.
+juce_add_console_app(shaper_compare PRODUCT_NAME "shaper_compare")
+set_target_properties(shaper_compare PROPERTIES EXCLUDE_FROM_ALL TRUE)
+target_sources(shaper_compare PRIVATE tools/compare.cpp)
+target_compile_definitions(shaper_compare PRIVATE JUCE_PLUGINHOST_VST3=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+if(MSVC)
+    target_compile_options(shaper_compare PRIVATE /utf-8)
+endif()
+target_link_libraries(shaper_compare PRIVATE juce::juce_audio_processors juce::juce_audio_formats juce::juce_dsp
+    juce::juce_recommended_config_flags)

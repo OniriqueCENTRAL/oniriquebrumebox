@@ -64,7 +64,7 @@ struct Settings
 
     float depth() const noexcept { return boost ? boostDepth : cutDepth; }
     /** Le gain maximal appliqué, en dB : jusqu'à -30 dB en cut, +15 dB en boost. */
-    float rangeDb() const noexcept { return boost ? boostDepth * 1.5f : -cutDepth * 3.0f; }
+    float rangeDb() const noexcept { return boost ? boostDepth * 1.6f : -cutDepth * 2.0f; }   // calé sur spiff
 };
 
 Settings defaultSettings();
@@ -111,6 +111,7 @@ private:
     void updateWeights() noexcept;
     void smoothAcross (const float* in, float* out) noexcept;
     void minimumPhase (const float* gain, std::complex<float>* out) noexcept;
+    void detect() noexcept;
 
     Settings settings;
     double sampleRate = 48000.0;
@@ -136,7 +137,21 @@ private:
     std::vector<std::complex<float>> spec[kMaxChannels], work, cep;
 
     // Détection : une par canal, et une liée.
-    std::vector<float> avgDb[kMaxChannels + 1], novelty[kMaxChannels + 1];
+    std::vector<float> novelty[kMaxChannels + 1];
+
+    // La détection fine, comme spiff : seul ce qui monte vite compte. Des trames courtes (5 ms, tous les 1,3 ms),
+    // en tiers d'octave ; chaque bande est comparée à son propre niveau des 5 à 30 ms d'avant. Un clic y monte de
+    // 30 dB d'un coup ; une voix tenue, un vibrato, une syllabe qui s'ouvre, de quelques dB seulement.
+    static constexpr int kDetHistory = 32, kDetEvents = 96;
+    int detN = 256, detHop = 64, detBands = 0, detCount = 0;
+    int64_t samplesIn = 0, detEnd = 0;
+    std::unique_ptr<Fft> detFft;
+    std::vector<std::complex<float>> detWork[kMaxChannels];
+    std::vector<float> detWindow, detBandHz, detPower, bandNovelty;
+    std::vector<int> detLo, detHi;
+    std::vector<float> detLevel[kMaxChannels + 1], detNovelty[kMaxChannels + 1];   // anneaux : trames × bandes
+    std::vector<int64_t> detTime;
+    std::vector<float> binBand;   // pour chaque bin de la grande FFT, sa place (fractionnaire) parmi les bandes
     std::vector<float> target[kMaxChannels], envelope[kMaxChannels], gainDb[kMaxChannels];
     std::vector<float> releaseCoef, amount, sensShift, coverage, scratch, prefix;
     std::vector<int> halfWidth;

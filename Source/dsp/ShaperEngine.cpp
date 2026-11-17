@@ -9,6 +9,10 @@ namespace shaper
 
 namespace
 {
+    // Calées sur spiff (même sons, mêmes réglages, tools/compare.cpp) : 0,9 dB d'écart moyen sur 7 réglages et 4 sons.
+    constexpr float kThr0 = 18.5f, kThr1 = 1.45f;        // seuil de nouveauté (dB) : 18,5 - 1,45 × sensitivity
+    constexpr float kSoft = 18.0f;                       // de « à peine trouvé » à « pleinement » : 18 dB de plus
+    constexpr float kDecBase = 0.002f, kDecExp = 0.85f;  // decay : 2 ms à 0, environ 0,7 s à 10
     constexpr float kTwoPi = 6.28318530717959f;
     constexpr float kLn10Over20 = 0.115129254649702f;
 
@@ -142,10 +146,39 @@ void ShaperEngine::prepare (double sr, int channels)
         gainDb[ch].assign ((size_t) maxBins, 0.0f);
     }
     for (int d = 0; d <= kMaxChannels; ++d)
-    {
-        avgDb[d].assign ((size_t) maxBins, -120.0f);
         novelty[d].assign ((size_t) maxBins, 0.0f);
+
+    // La détection fine : 256 échantillons à 48 kHz (5,3 ms), un pas de 64 (1,3 ms) ; des bandes d'un tiers d'octave
+    // (une par bin dans le grave, où la trame courte n'en a pas plus).
+    detN = 256 * srScale;
+    detHop = 64 * srScale;
+    detFft = std::make_unique<Fft> (detN);
+    detWindow.assign ((size_t) detN, 0.0f);
+    for (int i = 0; i < detN; ++i)
+        detWindow[(size_t) i] = 0.5f - 0.5f * std::cos (kTwoPi * (float) i / (float) detN);
+    detLo.clear();
+    detHi.clear();
+    detBandHz.clear();
+    for (int lo = 1; lo <= detN / 2;)
+    {
+        const int hi = std::min (detN / 2, std::max (lo, (int) std::floor ((float) lo * 1.26f)));
+        detLo.push_back (lo);
+        detHi.push_back (hi);
+        detBandHz.push_back (std::sqrt ((float) lo * (float) hi) * (float) (sr / detN));
+        lo = hi + 1;
     }
+    detBands = (int) detLo.size();
+    for (int ch = 0; ch < kMaxChannels; ++ch)
+        detWork[ch].assign ((size_t) detN, {});
+    for (int d = 0; d <= kMaxChannels; ++d)
+    {
+        detLevel[d].assign ((size_t) (kDetHistory * detBands), -120.0f);
+        detNovelty[d].assign ((size_t) (kDetEvents * detBands), 0.0f);
+    }
+    detTime.assign ((size_t) kDetEvents, -(int64_t) 1 << 40);
+    detPower.assign ((size_t) detBands, 0.0f);
+    bandNovelty.assign ((size_t) ((kMaxChannels + 1) * detBands), 0.0f);
+    binBand.assign ((size_t) maxBins, 0.0f);
     work.assign ((size_t) maxFft, {});
     cep.assign ((size_t) maxFft, {});
     for (auto* v : { &releaseCoef, &amount, &sensShift, &coverage, &scratch, &visIn, &visGain })
@@ -188,6 +221,20 @@ void ShaperEngine::configure() noexcept
     synthesisWindow = activeOversample == 0;
     olaNorm = (float) (hop / (synthesisWindow ? sumSq : sum));
 
+    // Chaque bin de la grande FFT, placé entre deux bandes de la détection (en octaves).
+    const float binHz = (float) (sampleRate / fftSize);
+    for (int k = 0; k < bins; ++k)
+    {
+        const float hz = std::max (1.0f, (float) k * binHz);
+        int b = 0;
+        while (b + 1 < detBands && detBandHz[(size_t) b + 1] <= hz)
+            ++b;
+        float pos = (float) b;
+        if (b + 1 < detBands && hz > detBandHz[(size_t) b])
+            pos += std::log2 (hz / detBandHz[(size_t) b]) / std::log2 (detBandHz[(size_t) b + 1] / detBandHz[(size_t) b]);
+        binBand[(size_t) k] = pos;
+    }
+
     weightsDirty = true;
     reset();
 }
@@ -202,7 +249,14 @@ void ShaperEngine::reset() noexcept
         std::fill (gainDb[ch].begin(), gainDb[ch].end(), 0.0f);
     }
     for (int d = 0; d <= kMaxChannels; ++d)
-        std::fill (avgDb[d].begin(), avgDb[d].end(), -120.0f);
+    {
+        std::fill (detLevel[d].begin(), detLevel[d].end(), -120.0f);
+        std::fill (detNovelty[d].begin(), detNovelty[d].end(), 0.0f);
+    }
+    std::fill (detTime.begin(), detTime.end(), -(int64_t) 1 << 40);
+    samplesIn = 0;
+    detEnd = detN;
+    detCount = 0;
     std::fill (visIn.begin(), visIn.end(), -120.0f);
     std::fill (visGain.begin(), visGain.end(), 0.0f);
     writePos = 0;
@@ -230,8 +284,8 @@ void ShaperEngine::updateWeights() noexcept
 
     const float binHz = (float) (sampleRate / fftSize);
 
-    // Decay : de 4 ms (0) à environ 1,4 s (10) ; decay lf/hf penche ce temps autour de 1 kHz.
-    const float releaseS = 0.004f * std::pow (2.0f, settings.decay * 0.85f);
+    // Decay : de 2 ms (0) à environ 0,7 s (10) ; decay lf/hf penche ce temps autour de 1 kHz.
+    const float releaseS = kDecBase * std::pow (2.0f, settings.decay * kDecExp);
     const float lean = (std::clamp (settings.decayLfHf, 0.0f, 10.0f) - 5.0f) / 5.0f;
 
     // Sharpness : chaque coupe ou boost s'étale sur 2 octaves (0) à un trentième d'octave (10).
@@ -299,6 +353,69 @@ void ShaperEngine::minimumPhase (const float* gain, std::complex<float>* out) no
         out[k] = std::exp (cep[(size_t) k]);
 }
 
+void ShaperEngine::detect() noexcept
+{
+    const bool stereo = numCh == 2;
+    const bool midSide = stereo && settings.stereoMode == StereoMode::midSide;
+    const int detectors = stereo ? 3 : 1;
+    constexpr int nearest = 4, farthest = 22;   // la référence : les trames de 5 à 30 ms avant
+
+    while (detEnd <= samplesIn)
+    {
+        // Les échantillons [detEnd - detN, detEnd), retrouvés dans l'anneau d'entrée.
+        const int back = (int) (samplesIn - detEnd) + detN;
+        for (int i = 0; i < detN; ++i)
+        {
+            const int idx = (writePos - back + i) & ringMask;
+            float a = inRing[0][(size_t) idx], b = stereo ? inRing[1][(size_t) idx] : 0.0f;
+            if (midSide)
+            {
+                const float m = (a + b) * 0.5f;
+                b = (a - b) * 0.5f;
+                a = m;
+            }
+            detWork[0][(size_t) i] = { a * detWindow[(size_t) i], 0.0f };
+            if (stereo)
+                detWork[1][(size_t) i] = { b * detWindow[(size_t) i], 0.0f };
+        }
+
+        const int slot = detCount % kDetHistory, event = detCount % kDetEvents;
+        detTime[(size_t) event] = detEnd - detN / 2;
+        std::fill (detPower.begin(), detPower.end(), 0.0f);
+
+        for (int d = 0; d < detectors; ++d)
+        {
+            if (d < numCh)
+                detFft->forward (detWork[d].data());
+
+            for (int b = 0; b < detBands; ++b)
+            {
+                float p = 0.0f;
+                if (d < numCh)
+                {
+                    for (int k = detLo[(size_t) b]; k <= detHi[(size_t) b]; ++k)
+                        p += std::norm (detWork[d][(size_t) k]);
+                    detPower[(size_t) b] += p * 0.5f;
+                }
+                else
+                {
+                    p = detPower[(size_t) b];   // les deux canaux ensemble
+                }
+
+                const float level = 10.0f * std::log10 (p + 1.0e-12f);
+                float reference = -120.0f;
+                for (int ago = nearest; ago <= farthest; ++ago)
+                    reference = std::max (reference, detLevel[d][(size_t) (((detCount - ago + kDetHistory * 4) % kDetHistory) * detBands + b)]);
+                detLevel[d][(size_t) (slot * detBands + b)] = level;
+                detNovelty[d][(size_t) (event * detBands + b)] = level > -100.0f ? std::max (0.0f, level - reference) : 0.0f;
+            }
+        }
+
+        ++detCount;
+        detEnd += detHop;
+    }
+}
+
 void ShaperEngine::processFrame() noexcept
 {
     const Settings& s = settings;
@@ -323,40 +440,43 @@ void ShaperEngine::processFrame() noexcept
             spec[1][(size_t) k] = (l - r) * 0.5f;
         }
 
-    // 2. Détection : chaque bin comparé à sa propre moyenne récente, en dB, pour chaque canal et pour les deux liés.
-    const float follow = 1.0f - std::exp (-hopSeconds / 0.05f);
-    const float threshold = 14.0f - 1.2f * std::clamp (s.sensitivity, 0.0f, 10.0f);
+    // 2. Détection : ce qui vient de monter vite, bande par bande (detect), pris autour du centre de cette trame,
+    //    puis réparti sur les bins. Le reste (seuil, largeur, retour, profondeur) ne change pas.
+    detect();
+    const float threshold = kThr0 - kThr1 * std::clamp (s.sensitivity, 0.0f, 10.0f);
     const float shownOffset = 20.0f * std::log10 ((float) frameLen * 0.25f);
     const int detectors = stereo ? 3 : 1;
+    {
+        const int64_t centre = samplesIn - frameLen / 2;
+        std::fill (bandNovelty.begin(), bandNovelty.end(), 0.0f);
+        for (int e = 0; e < kDetEvents; ++e)
+            if (std::abs (detTime[(size_t) e] - centre) <= hop)
+                for (int d = 0; d < detectors; ++d)
+                    for (int b = 0; b < detBands; ++b)
+                        bandNovelty[(size_t) (d * detBands + b)] = std::max (bandNovelty[(size_t) (d * detBands + b)],
+                                                                             detNovelty[d][(size_t) (e * detBands + b)]);
+    }
 
     for (int k = 0; k < bins; ++k)
     {
-        float linked = 0.0f;
+        const float pos = binBand[(size_t) k];
+        const int b0 = std::min ((int) pos, detBands - 1), b1 = std::min (b0 + 1, detBands - 1);
+        const float f = pos - (float) b0;
         for (int d = 0; d < detectors; ++d)
         {
-            float m;
-            if (d < numCh)
-            {
-                m = std::abs (spec[d][(size_t) k]);
-                linked += m;
-            }
-            else
-            {
-                m = linked * 0.5f;
-            }
-
-            const float db = 20.0f * std::log10 (m + 1.0e-9f);
-            auto& avg = avgDb[d][(size_t) k];
-            novelty[d][(size_t) k] = db > -110.0f ? std::max (0.0f, db - avg + sensShift[(size_t) k]) : 0.0f;
-            avg += (db - avg) * follow;
+            const float n = bandNovelty[(size_t) (d * detBands + b0)] * (1.0f - f) + bandNovelty[(size_t) (d * detBands + b1)] * f;
+            novelty[d][(size_t) k] = n > 0.0f ? n + sensShift[(size_t) k] : 0.0f;
         }
 
+        float linked = 0.0f;
+        for (int ch = 0; ch < numCh; ++ch)
+            linked += std::abs (spec[ch][(size_t) k]);
         const float shown = 20.0f * std::log10 ((stereo ? linked * 0.5f : linked) + 1.0e-9f) - shownOffset;
         visIn[(size_t) k] += (shown - visIn[(size_t) k]) * (shown > visIn[(size_t) k] ? 0.6f : 0.15f);
     }
 
     const float link = stereo ? std::clamp (s.stereoLink / 100.0f, 0.0f, 1.0f) : 0.0f;
-    auto found = [threshold] (float n) { return std::clamp ((n - threshold) / 6.0f, 0.0f, 1.0f); };
+    auto found = [threshold] (float n) { return std::clamp ((n - threshold) / kSoft, 0.0f, 1.0f); };
 
     // Balance : 0 = 100/0, 0,5 = 100/100, 1 = 0/100.
     const float balance = std::clamp (s.balance, 0.0f, 1.0f);
@@ -490,6 +610,7 @@ void ShaperEngine::process (float* const* io, int channels, int numSamples) noex
         }
 
         writePos = (writePos + 1) & ringMask;
+        ++samplesIn;
         if (++hopCount >= hop)
         {
             hopCount = 0;

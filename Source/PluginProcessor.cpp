@@ -66,7 +66,8 @@ namespace
 
     const StringArray kSlopes { "6 dB/oct", "12 dB/oct", "24 dB/oct", "48 dB/oct" };
     const StringArray kModes { "Low shelf", "Parametric", "High shelf", "Tilt shelf" };
-    constexpr float kDefaultFreq[shaper::kNumBands] = { 20.0f, 100.0f, 1000.0f, 10000.0f, 20000.0f };
+    // Les réglages de départ de spiff : coupe-bas 50 Hz, bandes à 100 Hz, 430 Hz et 2 kHz (+3 dB), coupe-haut 16 kHz.
+    constexpr float kDefaultFreq[shaper::kNumBands] = { 50.0f, 100.0f, 430.0f, 2000.0f, 16000.0f };
 }
 
 ShaperProcessor::ShaperProcessor()
@@ -84,27 +85,27 @@ AudioProcessorValueTreeState::ParameterLayout ShaperProcessor::createLayout()
     // Les mêmes paramètres que spiff, sous les mêmes identifiants.
     l.add (choice ("gain mode", "Mode", { "Cut", "Boost" }, 0));
     l.add (tenth ("cut depth", "Cut depth", 5.0f));
-    l.add (tenth ("boost depth", "Boost depth", 5.0f));
-    l.add (tenth ("sensitivity", "Sensitivity", 5.0f));
+    l.add (tenth ("boost depth", "Boost depth", 3.6f));
+    l.add (tenth ("sensitivity", "Sensitivity", 7.5f));
     l.add (tenth ("sharpness", "Sharpness", 5.0f));
-    l.add (tenth ("decay", "Decay", 5.0f));
-    l.add (tenth ("decay lf/hf", "Decay LF/HF", 5.0f));
+    l.add (tenth ("decay", "Decay", 3.3f));
+    l.add (tenth ("decay lf/hf", "Decay LF/HF", 3.3f));
 
     for (int b = 0; b < shaper::kNumBands; ++b)
     {
         const bool cut = b == 0 || b == shaper::kNumBands - 1;
         const auto name = cut ? String (b == 0 ? "Low cut" : "High cut") : "Band " + String (b);
 
-        l.add (toggle (bandId (b, "on"), name + " on", ! cut));
+        l.add (toggle (bandId (b, "on"), name + " on", true));
         l.add (hzParam (bandId (b, "freq"), name + " freq", kDefaultFreq[b]));
 
         if (! cut)
         {
-            l.add (param (bandId (b, "sens"), name + " sens", Range (-18.0f, 18.0f), 0.0f,
+            l.add (param (bandId (b, "sens"), name + " sens", Range (-18.0f, 18.0f), b == 3 ? 3.0f : 0.0f,
                           [] (float v) { return String (v, 1) + " dB"; }));
             Range q (0.1f, 10.0f);
             q.setSkewForCentre (1.0f);
-            l.add (param (bandId (b, "q"), name + " q", q, 0.7f, [] (float v) { return String (v, 2); }));
+            l.add (param (bandId (b, "q"), name + " q", q, 0.5f, [] (float v) { return String (v, 2); }));
         }
 
         l.add (choice (bandId (b, "mode"), name + (cut ? " slope" : " mode"), cut ? kSlopes : kModes, 1));
@@ -117,7 +118,7 @@ AudioProcessorValueTreeState::ParameterLayout ShaperProcessor::createLayout()
     l.add (choice ("resolution", "Resolution", { "Normal", "High" }, 0));
     l.add (choice ("oversample", "Oversample", { "1x", "2x", "4x" }, 0));
     l.add (choice ("window length", "Window", { "Short", "Medium", "Long" }, 1));
-    l.add (choice ("phase mode", "Phase", { "Linear", "Minimum" }, 0));
+    l.add (choice ("phase mode", "Phase", { "Linear", "Minimum" }, 1));
 
     l.add (param ("mix", "Mix", Range (0.0f, 100.0f), 100.0f, [] (float v) { return String (roundToInt (v)) + " %"; }));
     l.add (param ("trim", "Trim", Range (-12.0f, 12.0f), 0.0f, [] (float v) { return String (v, 1) + " dB"; }));

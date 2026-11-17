@@ -68,10 +68,18 @@ Capture sans hôte : `cmake --build build --target shaper_snapshot`, puis
 - **Rendre dynamique et détail à un mix trop compressé** : « Mix trop compressé : rendre la dynamique ».
 
 `shaper_snapshot --selftest` mesure les quatre sur le plugin et ses presets, avec des sons fabriqués
-(voix et claquements, corde pincée, mix passé dans un compresseur rapide). Dernière mesure :
-claquements -14,5 dB et voix intacte à -25 dB près ; attaques +3,7 dB, notes tenues 0 dB ;
-en avant +2,7 dB / en arrière -4,6 dB d'attaque pour moins de 0,2 dB de volume ; mix écrasé
-+3,4 dB de crête sur moyenne. Pas encore vérifié à l'oreille sur de vrais enregistrements.
+(voix et claquements, corde pincée, mix passé dans un compresseur rapide).
+
+## Calé sur spiff
+
+`shaper_compare <plugin.vst3> <dossier> [nom=valeur ...]` (tools/compare.cpp) passe quatre sons (voix et clics,
+corde, batterie sur un accord, nappe seule) dans n'importe quel VST3 et dit ce qui change sur les attaques et sur
+le tenu, dans les graves, les médiums et les aigus. Le moteur a été calé dessus face à spiff (installé sur le PC de
+Tom) : détection fine sur des trames de 5 ms en tiers d'octave, chaque bande comparée à son niveau des 5 à 30 ms
+d'avant, puis seuil, douceur, profondeur et decay ajustés sur 7 réglages de spiff. Écart moyen restant : 0,9 dB.
+Au réglage CUT 5 par défaut de spiff, la voix entre les clics perd 0,1 dB dans les aigus (spiff 0,0 ; l'ancien
+moteur 5,7 dB). Les valeurs par défaut sont celles de spiff (sensitivity 7,5, decay 3,3, decay lf/hf 3,3,
+coupe-bas 50 Hz, coupe-haut 16 kHz, bandes 100 Hz / 430 Hz / 2 kHz +3 dB, phase minimale).
 
 ## Presets
 
