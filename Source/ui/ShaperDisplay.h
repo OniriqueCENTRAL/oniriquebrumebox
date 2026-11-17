@@ -59,7 +59,6 @@ private:
     float hzForX (float x) const;
     float yForCurveDb (float db) const;
     float curveDbForY (float y) const;
-    float yForChangeDb (float db) const;
     float yForSpectrumDb (float db) const;
 
     Point<float> nodePosition (int band) const;
@@ -71,18 +70,19 @@ private:
 
     void paintGrid (Graphics&, Rectangle<float> plot);
     void paintSpectrum (Graphics&, Rectangle<float> plot);
-    void paintChange (Graphics&, Rectangle<float> plot);
     void paintCurve (Graphics&, Rectangle<float> plot);
     void paintReadouts (Graphics&, Rectangle<float> plot);
 
-    /** La valeur d'une colonne de pixels dans un tableau par bin : entre deux bins dans les graves,
-        le plus fort (ou le plus bas) de la colonne dans les aigus. */
-    float columnValue (const std::vector<float>&, float x, bool lowest) const;
+    /** Comme sur ONIRIQUE EQ : 384 points sur l'axe des fréquences, chacun la moyenne des bins à 1/12 d'octave
+        autour (entre deux bins dans les graves), et une courbe lisse qui passe par eux. */
+    static constexpr int kPoints = 384;
+    std::array<float, kPoints> sample (const std::vector<float>&) const;
+    Path smoothPath (const std::array<float, kPoints>& ys, bool closeToBottom, float bottom) const;
 
     ShaperProcessor& processor;
     shaper::Settings settings;
 
-    std::vector<float> inputDb, gainDb;
+    std::vector<float> inputDb, gainDb, outputDb;
     double binHz = 23.4;
     uint32_t lastFrame = 0;
     float deepest = 0.0f;

@@ -10,16 +10,50 @@ namespace
 {
     constexpr float kMinHz = 20.0f, kMaxHz = 20000.0f;
     constexpr float kCurveRange = 21.0f;    // la courbe : ±21 dB d'un bord à l'autre (les bandes vont à ±18)
-    constexpr float kChangeRange = 35.0f;   // la réduction : ±35 dB
     constexpr float kSpectrumFloor = -96.0f;
 
-    const Colour violet { 0xff9b8cff };
-
     const char* const kBandNames[shaper::kNumBands] = { "LOW CUT", "BAND 1", "BAND 2", "BAND 3", "HIGH CUT" };
+    const char* const kShortNames[shaper::kNumBands] = { "LC", "1", "2", "3", "HC" };
+
+    const Colour pale { 244, 236, 236 };   // le trait de l'entrée, celui d'ONIRIQUE EQ
+
+    float hzAt (int i, int points) { return 20.0f * std::pow (1000.0f, (float) i / (float) (points - 1)); }
+
+    /** Un trait qui luit : quatre traits de plus en plus larges et pâles dessous (ONIRIQUE EQ, ui::strokeGlow). */
+    void strokeGlow (Graphics& g, const Path& p, Colour c, float width, float intensity)
+    {
+        for (int i = 4; i >= 1; --i)
+        {
+            g.setColour (c.withAlpha (jlimit (0.0f, 1.0f, intensity * 0.17f / (float) i)));
+            g.strokePath (p, PathStrokeType (width * (1.0f + 1.15f * (float) i), PathStrokeType::curved, PathStrokeType::rounded));
+        }
+    }
+
+    /** La forme des panneaux d'ONIRIQUE EQ : un rectangle arrondi, et une bosse douce au-dessus de [hx0, hx1]. */
+    Path humpShape (Rectangle<float> body, float hx0, float hx1, float hump, float rad)
+    {
+        const float top = body.getY(), ht = top - hump, ease = jmin (30.0f, (hx1 - hx0) * 0.3f);
+        Path p;
+        p.startNewSubPath (body.getX() + rad, top);
+        p.lineTo (hx0, top);
+        p.cubicTo (hx0 + ease * 0.55f, top, hx0 + ease * 0.4f, ht, hx0 + ease, ht);
+        p.lineTo (hx1 - ease, ht);
+        p.cubicTo (hx1 - ease * 0.4f, ht, hx1 - ease * 0.55f, top, hx1, top);
+        p.lineTo (body.getRight() - rad, top);
+        p.quadraticTo (body.getRight(), top, body.getRight(), top + rad);
+        p.lineTo (body.getRight(), body.getBottom() - rad);
+        p.quadraticTo (body.getRight(), body.getBottom(), body.getRight() - rad, body.getBottom());
+        p.lineTo (body.getX() + rad, body.getBottom());
+        p.quadraticTo (body.getX(), body.getBottom(), body.getX(), body.getBottom() - rad);
+        p.lineTo (body.getX(), top + rad);
+        p.quadraticTo (body.getX(), top, body.getX() + rad, top);
+        p.closeSubPath();
+        return p;
+    }
 }
 
 //==============================================================================
-/** Le bouton d'une bande : un anneau de sa couleur, plein quand elle travaille. */
+/** Marche / arrêt de la bande, le bouton d'ONIRIQUE EQ : un pictogramme, une pastille braise quand elle travaille. */
 class RingButton final : public Button
 {
 public:
@@ -27,17 +61,61 @@ public:
 
     void paintButton (Graphics& g, bool over, bool) override
     {
-        const auto p = getLocalBounds().toFloat().reduced (3.0f);
-        const auto colour = Colour ((uint32) (int64) getProperties().getWithDefault ("accent", (int64) 0xffe23444));
-
-        g.setColour (getToggleState() ? colour : Colour (0x40ffd2d6));
-        g.drawEllipse (p, over ? 2.0f : 1.6f);
-        if (getToggleState())
+        const auto r = getLocalBounds().toFloat().reduced (2.0f);
+        const bool on = getToggleState();
+        if (on)
         {
-            g.setColour (colour.withAlpha (0.4f));
-            g.fillEllipse (p.reduced (5.0f));
+            g.setColour (ember.withAlpha (0.3f));
+            g.fillRoundedRectangle (r, 11.0f);
+            g.setColour (ember.withAlpha (0.55f));
+            g.fillRoundedRectangle (r.reduced (3.0f), 9.0f);
         }
+        else if (over)
+        {
+            g.setColour (Colours::white.withAlpha (0.10f));
+            g.fillRoundedRectangle (r.reduced (3.0f), 9.0f);
+        }
+
+        Path p;
+        const auto c = r.getCentre();
+        const float rad = 5.2f;
+        p.addCentredArc (c.x, c.y, rad, rad, 0.0f, 0.75f, MathConstants<float>::twoPi - 0.75f, true);
+        p.startNewSubPath (c.x, c.y - rad * 1.25f);
+        p.lineTo (c.x, c.y - rad * 0.15f);
+        g.setColour (on || over ? Colours::white : Colour (0xffd8c6c8));
+        g.strokePath (p, PathStrokeType (1.8f, PathStrokeType::curved, PathStrokeType::rounded));
     }
+};
+
+/** Les petits boutons du coin du panneau : bande précédente, suivante (triangles couchés), fermer (une croix). */
+class GlyphButton final : public Button
+{
+public:
+    enum Glyph { previous, next, cross };
+    explicit GlyphButton (Glyph which) : Button ("glyph"), glyph (which) {}
+
+    void paintButton (Graphics& g, bool over, bool) override
+    {
+        const auto r = getLocalBounds().toFloat();
+        g.setColour (over ? bone : haze);
+        if (glyph == cross)
+        {
+            const auto q = r.withSizeKeepingCentre (9.0f, 9.0f);
+            Path p;
+            p.startNewSubPath (q.getTopLeft()); p.lineTo (q.getBottomRight());
+            p.startNewSubPath (q.getTopRight()); p.lineTo (q.getBottomLeft());
+            g.strokePath (p, PathStrokeType (1.6f, PathStrokeType::curved, PathStrokeType::rounded));
+            return;
+        }
+        const auto a = r.withSizeKeepingCentre (6.0f, 10.0f);
+        Path p;
+        if (glyph == previous) p.addTriangle (a.getRight(), a.getY(), a.getRight(), a.getBottom(), a.getX(), a.getCentreY());
+        else                   p.addTriangle (a.getX(), a.getY(), a.getX(), a.getBottom(), a.getRight(), a.getCentreY());
+        g.fillPath (p);
+    }
+
+private:
+    Glyph glyph;
 };
 
 /** L'écoute d'une bande : un casque, allumé quand on l'écoute. */
@@ -94,10 +172,7 @@ public:
         next.onClick = [this] { display.select ((band + 1) % shaper::kNumBands); };
         close.onClick = [this] { display.select (-1); };
         for (auto* b : { &previous, &next, &close })
-        {
-            b->getProperties().set ("plain", true);
             addAndMakeVisible (*b);
-        }
     }
 
     void show (int newBand)
@@ -129,10 +204,8 @@ public:
         sens.setVisible (! cut);
         q.setVisible (! cut);
 
-        const auto colour = bandColour (band);
-        power.getProperties().set ("accent", (int64) colour.getARGB());
         for (auto* k : { &freq, &sens, &q })
-            k->setAccent (colour);
+            k->setAccent (ember);
         sens.slider.getProperties().set ("bipolar", true);
 
         listen.setToggleState (display.processor.listenBand.load() == band, dontSendNotification);
@@ -142,58 +215,67 @@ public:
 
     void paint (Graphics& g) override
     {
-        const auto colour = bandColour (band);
-        const auto area = getLocalBounds().toFloat().reduced (1.0f);
-
-        // Le verre : sombre, teinté de la couleur de la bande, bordé d'un fil lumineux.
-        g.setGradientFill (ColourGradient (Colour (0xf2241016).interpolatedWith (colour, 0.10f), area.getX(), area.getY(),
-                                           Colour (0xf20d0709), area.getX(), area.getBottom(), false));
-        g.fillRoundedRectangle (area, 16.0f);
-        g.setColour (colour.withAlpha (0.65f));
-        g.drawRoundedRectangle (area, 16.0f, 1.4f);
+        // Le verre d'ONIRIQUE EQ (celui de VOCALBOX) : ombre douce, fond sombre, voile blanc en biais, liseré rosé.
+        DropShadow (Colours::black.withAlpha (0.55f), 26, { 0, 10 }).drawForPath (g, shape);
+        g.setColour (Colour (0xff0f0b0d).withAlpha (0.92f));
+        g.fillPath (shape);
+        const auto sb = shape.getBounds();
+        ColourGradient veil (Colours::white.withAlpha (0.075f), sb.getX() + sb.getWidth() * 0.32f, sb.getY(),
+                             Colours::white.withAlpha (0.035f), sb.getRight() - sb.getWidth() * 0.32f, sb.getBottom(), false);
+        veil.addColour (0.4, Colours::white.withAlpha (0.02f));
+        g.setGradientFill (veil);
+        g.fillPath (shape);
+        g.setColour (Colour (0xffffebee).withAlpha (0.12f));
+        g.strokePath (shape, PathStrokeType (1.0f));
 
         g.setColour (mist);
         g.setFont (capsFont (10.5f));
         g.drawText (kBandNames[band], power.getRight() + 8, power.getY(), 110, power.getHeight(), Justification::centredLeft, false);
 
-        g.setFont (monoFont (11.0f).boldened());
-        static const char* const shortNames[shaper::kNumBands] = { "LC", "1", "2", "3", "HC" };
-        g.drawText (shortNames[band], previous.getRight(), previous.getY(), next.getX() - previous.getRight(),
+        g.setFont (monoFont (12.0f).boldened());
+        g.drawText (kShortNames[band], previous.getRight(), previous.getY(), next.getX() - previous.getRight(),
                     previous.getHeight(), Justification::centred, false);
     }
 
     void resized() override
     {
-        auto area = getLocalBounds().reduced (16, 12);
+        // Comme sur ONIRIQUE EQ : gauche (marche, forme, écoute) | FREQ | SENS sous la bosse | Q | droite (bandes, fermer).
+        const auto r = getLocalBounds().toFloat();
+        const float hump = 16.0f, margin = 12.0f;
+        const auto body = r.reduced (margin).withTrimmedTop (hump);
+        const float sideW = jmax (150.0f, body.getWidth() * 0.24f), knobW = (body.getWidth() - 2.0f * sideW) / 3.2f, mainW = knobW * 1.2f;
+        const float kx = body.getX() + sideW;
+        const auto freqR = Rectangle<float> (kx, body.getY() + 4.0f, knobW, body.getHeight() - 8.0f);
+        const auto sensR = Rectangle<float> (kx + knobW, r.getY() + margin, mainW, body.getBottom() - r.getY() - margin - 4.0f);
+        const auto qR = Rectangle<float> (kx + knobW + mainW, freqR.getY(), knobW, freqR.getHeight());
+        shape = humpShape (body, sensR.getX() - 22.0f, sensR.getRight() + 22.0f, hump, 16.0f);
 
-        auto left = area.removeFromLeft (160);
-        auto top = left.removeFromTop (30);
-        power.setBounds (top.removeFromLeft (30));
-        left.removeFromTop (6);
+        auto left = body.withWidth (sideW).reduced (12.0f, 10.0f).toNearestInt();
+        power.setBounds (left.removeFromTop (30).removeFromLeft (30));
+        left.removeFromTop (8);
         mode.setBounds (left.removeFromTop (28));
         left.removeFromTop (8);
         listen.setBounds (left.removeFromTop (26).withWidth (96));
 
-        auto right = area.removeFromRight (104);
-        auto nav = right.removeFromTop (28);
+        auto nav = body.withLeft (body.getRight() - sideW).reduced (12.0f, 10.0f).toNearestInt().removeFromTop (28);
         close.setBounds (nav.removeFromRight (28));
-        nav.removeFromRight (6);
-        previous.setBounds (nav.removeFromLeft (24));
-        next.setBounds (nav.removeFromRight (24));
+        nav.removeFromRight (12);
+        next.setBounds (nav.removeFromRight (22));
+        previous.setBounds (nav.removeFromRight (22 + 26).removeFromLeft (22));
 
-        area.reduce (6, 0);
         if (isCut (band))
         {
-            freq.setBounds (area.withSizeKeepingCentre (area.getWidth() / 3, area.getHeight()));
+            freq.setBounds (sensR.toNearestInt());
         }
         else
         {
-            const auto w = area.getWidth() / 3;
-            freq.setBounds (area.removeFromLeft (w));
-            sens.setBounds (area.removeFromLeft (w));
-            q.setBounds (area);
+            freq.setBounds (freqR.toNearestInt());
+            sens.setBounds (sensR.toNearestInt());
+            q.setBounds (qR.toNearestInt());
         }
     }
+
+    bool hitTest (int x, int y) override { return shape.contains ((float) x, (float) y); }
 
     void listenChanged (int listening) { listen.setToggleState (listening == band, dontSendNotification); }
 
@@ -206,18 +288,17 @@ private:
     ListenButton listen;
     ComboBox mode;
     Knob freq { "FREQ" }, sens { "SENS" }, q { "Q" };
-    TextButton previous { "<" }, next { ">" }, close { "X" };
+    GlyphButton previous { GlyphButton::previous }, next { GlyphButton::next }, close { GlyphButton::cross };
+    Path shape;
 
     std::unique_ptr<AudioProcessorValueTreeState::ButtonAttachment> powerAttachment;
     std::unique_ptr<AudioProcessorValueTreeState::ComboBoxAttachment> modeAttachment;
 };
 
 //==============================================================================
-Colour ShaperDisplay::bandColour (int band)
+Colour ShaperDisplay::bandColour (int)
 {
-    static const Colour colours[shaper::kNumBands] = { Colour (0xffb9a7ab), Colour (0xffff7a59), Colour (0xffffc857),
-                                                   Colour (0xff9b8cff), Colour (0xff5cd6e8) };
-    return colours[jlimit (0, shaper::kNumBands - 1, band)];
+    return ember;   // comme sur ONIRIQUE EQ : toutes les bandes de la couleur de l'interface
 }
 
 ShaperDisplay::ShaperDisplay (ShaperProcessor& p) : processor (p)
@@ -279,6 +360,7 @@ void ShaperDisplay::timerCallback()
             binHz = engine.getDisplayBinHz();
             inputDb.assign ((size_t) bins, kSpectrumFloor);
             gainDb.assign ((size_t) bins, 0.0f);
+            outputDb.assign ((size_t) bins, kSpectrumFloor);
         }
 
         const float* in = engine.getInputDb();
@@ -290,6 +372,7 @@ void ShaperDisplay::timerCallback()
             const float db = jmax (kSpectrumFloor, in[k]);
             inputDb[(size_t) k] += (db - inputDb[(size_t) k]) * (db > inputDb[(size_t) k] ? 0.7f : 0.25f);
             gainDb[(size_t) k] += (gain[k] - gainDb[(size_t) k]) * (std::abs (gain[k]) > std::abs (gainDb[(size_t) k]) ? 0.8f : 0.3f);
+            outputDb[(size_t) k] = jmax (kSpectrumFloor, inputDb[(size_t) k] + gainDb[(size_t) k]);   // ce qui sort
             if (std::abs (gainDb[(size_t) k]) > std::abs (most))
                 most = gainDb[(size_t) k];
         }
@@ -303,8 +386,8 @@ void ShaperDisplay::timerCallback()
 //==============================================================================
 Rectangle<float> ShaperDisplay::plotArea() const
 {
-    return getLocalBounds().toFloat().reduced (1.0f).withTrimmedLeft (38.0f).withTrimmedRight (38.0f)
-                           .withTrimmedTop (12.0f).withTrimmedBottom (26.0f);
+    return getLocalBounds().toFloat().reduced (12.0f, 10.0f).withTrimmedRight (40.0f)
+                           .withTrimmedTop (22.0f).withTrimmedBottom (14.0f);
 }
 
 float ShaperDisplay::xForHz (float hz) const
@@ -331,12 +414,6 @@ float ShaperDisplay::curveDbForY (float y) const
 {
     const auto plot = plotArea();
     return (plot.getCentreY() - y) / (plot.getHeight() * 0.5f) * kCurveRange;
-}
-
-float ShaperDisplay::yForChangeDb (float db) const
-{
-    const auto plot = plotArea();
-    return plot.getCentreY() - db / kChangeRange * plot.getHeight() * 0.5f;
 }
 
 float ShaperDisplay::yForSpectrumDb (float db) const
@@ -369,62 +446,110 @@ int ShaperDisplay::nodeAt (Point<float> p) const
     return best;
 }
 
-float ShaperDisplay::columnValue (const std::vector<float>& values, float x, bool lowest) const
+std::array<float, ShaperDisplay::kPoints> ShaperDisplay::sample (const std::vector<float>& values) const
 {
-    const auto lo = hzForX (x - 1.0f), hi = hzForX (x + 1.0f);
+    std::array<float, kPoints> out;
+    out.fill (kSpectrumFloor);
     const int last = (int) values.size() - 1;
-    const int k0 = jlimit (0, last, (int) std::floor (lo / binHz));
-    const int k1 = jlimit (k0, last, (int) std::ceil (hi / binHz));
+    if (last < 1)
+        return out;
 
-    if (k1 - k0 <= 1)
+    const float spread = std::pow (2.0f, 1.0f / 24.0f);   // ±1/24 d'octave : 1/12 en tout
+    for (int i = 0; i < kPoints; ++i)
     {
-        const auto pos = jlimit (0.0f, (float) last - 1.0f, (lo + hi) * 0.5f / (float) binHz);
-        const auto k = (int) pos;
-        return values[(size_t) k] + (values[(size_t) k + 1] - values[(size_t) k]) * (pos - (float) k);
+        const float hz = hzAt (i, kPoints);
+        const int k0 = jlimit (0, last, (int) std::ceil (hz / spread / (float) binHz));
+        const int k1 = jlimit (0, last, (int) std::floor (hz * spread / (float) binHz));
+        if (k1 <= k0)
+        {
+            const auto pos = jlimit (0.0f, (float) last - 1.0f, hz / (float) binHz);
+            const auto k = (int) pos;
+            out[(size_t) i] = values[(size_t) k] + (values[(size_t) k + 1] - values[(size_t) k]) * (pos - (float) k);
+        }
+        else
+        {
+            float sum = 0.0f;
+            for (int k = k0; k <= k1; ++k)
+                sum += values[(size_t) k];
+            out[(size_t) i] = sum / (float) (k1 - k0 + 1);
+        }
+        // Une pente de +4,5 dB par octave, pour que le spectre se lise comme on l'entend.
+        out[(size_t) i] += 4.5f * std::log2 (hz / 1000.0f);
     }
+    return out;
+}
 
-    float v = values[(size_t) k0];
-    for (int k = k0; k <= k1; ++k)
-        v = lowest ? jmin (v, values[(size_t) k]) : jmax (v, values[(size_t) k]);
-    return v;
+Path ShaperDisplay::smoothPath (const std::array<float, kPoints>& ys, bool closeToBottom, float bottom) const
+{
+    std::array<Point<float>, kPoints> pt;
+    for (int i = 0; i < kPoints; ++i)
+        pt[(size_t) i] = { xForHz (hzAt (i, kPoints)), ys[(size_t) i] };
+
+    Path p;
+    p.preallocateSpace (kPoints * 7 + 8);
+    if (closeToBottom) { p.startNewSubPath (pt[0].x, bottom); p.lineTo (pt[0]); }
+    else p.startNewSubPath (pt[0]);
+    for (int i = 0; i < kPoints - 1; ++i)
+    {
+        const auto& p0 = pt[(size_t) jmax (0, i - 1)];
+        const auto& p1 = pt[(size_t) i];
+        const auto& p2 = pt[(size_t) i + 1];
+        const auto& p3 = pt[(size_t) jmin (kPoints - 1, i + 2)];
+        p.cubicTo (p1 + (p2 - p0) / 6.0f, p2 - (p3 - p1) / 6.0f, p2);
+    }
+    if (closeToBottom) { p.lineTo (pt[(size_t) kPoints - 1].x, bottom); p.closeSubPath(); }
+    return p;
 }
 
 //==============================================================================
 void ShaperDisplay::paint (Graphics& g)
 {
-    // posé sur le fond, sans cadre
-
+    // posé sur le fond, sans cadre ; le dessin est celui de l'analyseur d'ONIRIQUE EQ
     const auto plot = plotArea();
+    paintGrid (g, plot);
     {
         Graphics::ScopedSaveState save (g);
         g.reduceClipRegion (plot.toNearestInt());
-
         paintSpectrum (g, plot);
-        paintGrid (g, plot);
-        paintChange (g, plot);
         paintCurve (g, plot);
     }
-
     paintReadouts (g, plot);
 }
 
 void ShaperDisplay::paintGrid (Graphics& g, Rectangle<float> plot)
 {
-    for (float hz : { 30.0f, 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f })
-    {
-        const bool major = hz == 100.0f || hz == 1000.0f || hz == 10000.0f;
-        g.setColour (Colour (0xffffd2d6).withAlpha (major ? 0.10f : 0.05f));
-        g.drawVerticalLine (roundToInt (xForHz (hz)), plot.getY(), plot.getBottom());
-    }
+    const Colour grid { (uint8) 255, (uint8) 214, (uint8) 218, 0.10f };
 
-    for (float db : { -18.0f, -12.0f, -6.0f, 6.0f, 12.0f, 18.0f })
-    {
-        g.setColour (Colour (0xffffd2d6).withAlpha (0.05f));
-        g.drawHorizontalLine (roundToInt (yForCurveDb (db)), plot.getX(), plot.getRight());
-    }
+    // Les décades nettes, leurs divisions fines ; 20, 50, 100, 200, 500... écrits dessous.
+    g.setFont (monoFont (10.0f));
+    for (float decade : { 10.0f, 100.0f, 1000.0f, 10000.0f })
+        for (int k = 1; k <= 9; ++k)
+        {
+            const float hz = decade * (float) k;
+            if (hz < kMinHz || hz > kMaxHz)
+                continue;
+            const float x = xForHz (hz);
+            const bool major = k == 1;
+            g.setColour (grid.withMultipliedAlpha (major ? 0.9f : 0.32f));
+            g.fillRect (Rectangle<float> (x, plot.getY() - (major ? 6.0f : 0.0f), 1.0f, plot.getHeight() + (major ? 6.0f : 0.0f)));
+            if (major || k == 2 || k == 5)
+            {
+                g.setColour (haze.withAlpha (major ? 0.9f : 0.65f));
+                g.drawText (hz >= 1000.0f ? String ((int) (hz / 1000.0f)) + "k" : String ((int) hz),
+                            Rectangle<float> (x + 3.0f, plot.getBottom() + 2.0f, 40.0f, 12.0f), Justification::centredLeft, false);
+            }
+        }
 
-    g.setColour (Colour (0xffffd2d6).withAlpha (0.16f));
-    g.drawHorizontalLine (roundToInt (plot.getCentreY()), plot.getX(), plot.getRight());
+    // La sensibilité tous les 6 dB, écrite à droite ; le 0 plus marqué.
+    for (int db = -18; db <= 18; db += 6)
+    {
+        const float y = yForCurveDb ((float) db);
+        g.setColour (db == 0 ? grid.withMultipliedAlpha (1.8f) : grid.withMultipliedAlpha (0.5f));
+        g.fillRect (Rectangle<float> (plot.getX(), y, plot.getWidth(), 1.0f));
+        g.setColour (haze.withAlpha (0.6f));
+        g.drawText ((db > 0 ? "+" : "") + String (db) + " dB", Rectangle<float> (plot.getRight() + 4.0f, y - 6.0f, 40.0f, 12.0f),
+                    Justification::centredLeft, false);
+    }
 }
 
 void ShaperDisplay::paintSpectrum (Graphics& g, Rectangle<float> plot)
@@ -432,61 +557,24 @@ void ShaperDisplay::paintSpectrum (Graphics& g, Rectangle<float> plot)
     if (inputDb.empty())
         return;
 
-    Path fill;
-    fill.startNewSubPath (plot.getX(), plot.getBottom());
-    for (float x = plot.getX(); x <= plot.getRight(); x += 2.0f)
+    std::array<float, kPoints> yIn, yOut;
+    const auto in = sample (inputDb), out = sample (outputDb);
+    for (int i = 0; i < kPoints; ++i)
     {
-        // Une pente de +4,5 dB par octave, pour que le spectre se lise comme on l'entend.
-        const auto db = columnValue (inputDb, x, false) + 4.5f * std::log2 (hzForX (x) / 1000.0f);
-        fill.lineTo (x, yForSpectrumDb (db));
+        yIn[(size_t) i] = yForSpectrumDb (in[(size_t) i]);
+        yOut[(size_t) i] = yForSpectrumDb (out[(size_t) i]);
     }
-    fill.lineTo (plot.getRight(), plot.getBottom());
-    fill.closeSubPath();
 
-    g.setGradientFill (ColourGradient (Colour (0x55e3b5ba), 0.0f, plot.getY(), Colour (0x10e3b5ba), 0.0f, plot.getBottom(), false));
-    g.fillPath (fill);
-    g.setColour (Colour (0x40ffd2d6));
-    g.strokePath (fill, PathStrokeType (1.0f));
-}
-
-void ShaperDisplay::paintChange (Graphics& g, Rectangle<float> plot)
-{
-    if (gainDb.empty())
-        return;
-
-    const auto zero = plot.getCentreY();
-    Path shape;
-    shape.startNewSubPath (plot.getX(), zero);
-    for (float x = plot.getX(); x <= plot.getRight(); x += 2.0f)
-        shape.lineTo (x, yForChangeDb (columnValue (gainDb, x, ! settings.boost)));
-    shape.lineTo (plot.getRight(), zero);
-    shape.closeSubPath();
-
-    // Coupé : une ombre qui descend de la ligne ; poussé : une lueur qui monte.
-    const auto colour = settings.boost ? violet : ember;
-    g.setGradientFill (ColourGradient (colour.withAlpha (0.15f), 0.0f, zero,
-                                       colour.withAlpha (0.55f), 0.0f, settings.boost ? plot.getY() : plot.getBottom(), false));
-    g.fillPath (shape);
-    g.setColour (colour.withAlpha (0.9f));
-    g.strokePath (shape, PathStrokeType (1.2f));
+    // La sortie en surface de la couleur de l'interface, l'entrée en trait pâle : l'écart entre les deux,
+    // c'est ce que Shaper enlève (ou ajoute) en ce moment.
+    g.setGradientFill (ColourGradient (ember.withAlpha (0.55f), 0.0f, plot.getY(), ember.withAlpha (0.02f), 0.0f, plot.getBottom(), false));
+    g.fillPath (smoothPath (yOut, true, plot.getBottom()));
+    g.setColour (pale.withAlpha (0.35f));
+    g.strokePath (smoothPath (yIn, false, 0.0f), PathStrokeType (1.6f, PathStrokeType::curved));
 }
 
 void ShaperDisplay::paintCurve (Graphics& g, Rectangle<float> plot)
 {
-    // La forme de la bande choisie, en couleur, sous la courbe.
-    if (selected >= 0 && settings.bands[selected].on)
-    {
-        Path own;
-        own.startNewSubPath (plot.getX(), plot.getCentreY());
-        for (float x = plot.getX(); x <= plot.getRight(); x += 2.0f)
-            own.lineTo (x, yForCurveDb (jmax (-kCurveRange, shaper::bandDb (settings, selected, hzForX (x)))));
-        own.lineTo (plot.getRight(), plot.getCentreY());
-        own.closeSubPath();
-
-        g.setColour (bandColour (selected).withAlpha (0.18f));
-        g.fillPath (own);
-    }
-
     // La bande écoutée : sa zone éclairée.
     if (const int listening = processor.listenBand.load(); listening >= 0)
     {
@@ -496,107 +584,108 @@ void ShaperDisplay::paintCurve (Graphics& g, Rectangle<float> plot)
             zone.lineTo (x, plot.getBottom() - shaper::bandCoverage (settings, listening, hzForX (x)) * plot.getHeight());
         zone.lineTo (plot.getRight(), plot.getBottom());
         zone.closeSubPath();
-        g.setColour (bandColour (listening).withAlpha (0.10f));
+        g.setColour (bone.withAlpha (0.06f));
         g.fillPath (zone);
     }
 
-    Path curve;
-    for (float x = plot.getX(); x <= plot.getRight(); x += 2.0f)
+    // La courbe de sensibilité, comme celle d'ONIRIQUE EQ : remplie jusqu'au 0, un trait braise qui luit.
+    std::array<float, kPoints> ys;
+    for (int i = 0; i < kPoints; ++i)
+        ys[(size_t) i] = yForCurveDb (jmax (-kCurveRange - 2.0f, shaper::sensitivityDb (settings, hzAt (i, kPoints))));
+    const auto curve = smoothPath (ys, false, 0.0f);
+    Path fill (curve);
+    fill.lineTo (plot.getRight(), yForCurveDb (0.0f));
+    fill.lineTo (plot.getX(), yForCurveDb (0.0f));
+    fill.closeSubPath();
+    g.setColour (ember.withAlpha (0.12f));
+    g.fillPath (fill);
+    strokeGlow (g, curve, ember, 2.5f, 1.0f);
+    g.setColour (ember);
+    g.strokePath (curve, PathStrokeType (2.4f, PathStrokeType::curved, PathStrokeType::rounded));
+
+    // La forme de la bande choisie, en voile pâle.
+    if (selected >= 0 && settings.bands[selected].on)
     {
-        const auto y = yForCurveDb (jmax (-kCurveRange - 2.0f, shaper::sensitivityDb (settings, hzForX (x))));
-        if (x == plot.getX())
-            curve.startNewSubPath (x, y);
-        else
-            curve.lineTo (x, y);
-    }
-
-    g.setColour (Colours::white.withAlpha (0.25f));
-    g.strokePath (curve, PathStrokeType (4.0f, PathStrokeType::curved, PathStrokeType::rounded));
-    g.setColour (Colours::white);
-    g.strokePath (curve, PathStrokeType (2.0f, PathStrokeType::curved, PathStrokeType::rounded));
-
-    for (int b = 0; b < shaper::kNumBands; ++b)
-    {
-        const auto p = nodePosition (b);
-        const auto colour = bandColour (b);
-        const bool on = settings.bands[b].on;
-        const float r = (b == hovered || b == dragging) ? 8.0f : 7.0f;
-        const auto disc = Rectangle<float> (2 * r, 2 * r).withCentre (p);
-
-        if (b == selected)
-        {
-            g.setColour (colour.withAlpha (0.3f));
-            g.fillEllipse (disc.expanded (5.0f));
-        }
-
-        if (on)
-        {
-            Path e;
-            e.addEllipse (disc);
-            DropShadow (colour.withAlpha (0.7f), 8, {}).drawForPath (g, e);
-            g.setColour (colour);
-            g.fillEllipse (disc);
-            g.setColour (Colours::white.withAlpha (0.85f));
-            g.drawEllipse (disc, 1.4f);
-        }
-        else
-        {
-            g.setColour (night);
-            g.fillEllipse (disc);
-            g.setColour (colour.withAlpha (0.6f));
-            g.drawEllipse (disc, 1.4f);
-        }
+        for (int i = 0; i < kPoints; ++i)
+            ys[(size_t) i] = yForCurveDb (jmax (-kCurveRange, shaper::bandDb (settings, selected, hzAt (i, kPoints))));
+        Path own = smoothPath (ys, false, 0.0f);
+        own.lineTo (plot.getRight(), yForCurveDb (0.0f));
+        own.lineTo (plot.getX(), yForCurveDb (0.0f));
+        own.closeSubPath();
+        g.setColour (bone.withAlpha (0.10f));
+        g.fillPath (own);
     }
 }
 
 void ShaperDisplay::paintReadouts (Graphics& g, Rectangle<float> plot)
 {
-    g.setFont (monoFont (10.0f));
-
-    g.setColour (haze);
-    for (auto [hz, text] : { std::pair { 50.0f, "50" }, { 100.0f, "100" }, { 200.0f, "200" }, { 500.0f, "500" },
-                             { 1000.0f, "1k" }, { 2000.0f, "2k" }, { 5000.0f, "5k" }, { 10000.0f, "10k" } })
-        g.drawText (text, Rectangle<float> (40.0f, 16.0f).withCentre ({ xForHz (hz), plot.getBottom() + 13.0f }),
-                    Justification::centred, false);
-
-    // À gauche la sensibilité, à droite la réduction.
-    for (float db : { -18.0f, -12.0f, -6.0f, 0.0f, 6.0f, 12.0f, 18.0f })
+    // Les points, comme sur ONIRIQUE EQ : un anneau braise qui luit, numéroté ; celui choisi, plein.
+    for (int b = 0; b < shaper::kNumBands; ++b)
     {
-        g.setColour (Colour (0xffe3b5ba));
-        g.drawText ((db > 0 ? "+" : "") + String ((int) db), Rectangle<float> (32.0f, 14.0f).withCentre ({ plot.getX() - 19.0f, yForCurveDb (db) }),
-                    Justification::centred, false);
+        const auto c = nodePosition (b);
+        const bool on = settings.bands[b].on;
+        const float glow = (b == hovered || b == dragging) ? 1.0f : 0.0f;
+        const float r = 7.0f + 2.0f * glow;
+        const auto dot = Rectangle<float> (2.0f * r, 2.0f * r).withCentre (c);
+        Path ring;
+        ring.addEllipse (dot);
+        if (on)
+        {
+            strokeGlow (g, ring, ember, 1.4f, 0.4f + 0.6f * glow);
+            g.setColour (b == selected ? ember : night);
+            g.fillPath (ring);
+            g.setColour (b == selected ? bone : ember);
+            g.strokePath (ring, PathStrokeType (1.8f));
+            g.setColour (b == selected ? night : bone);
+        }
+        else
+        {
+            g.setColour (night.withAlpha (0.7f));
+            g.fillPath (ring);
+            g.setColour (haze.withAlpha (0.35f + 0.4f * glow));
+            g.strokePath (ring, PathStrokeType (1.2f));
+            g.setColour (haze.withAlpha (0.5f + 0.4f * glow));
+        }
+        g.setFont (monoFont (isCut (b) ? 7.0f : 8.0f).boldened());
+        g.drawText (kShortNames[b], dot, Justification::centred, false);
     }
-    for (float db : { -30.0f, -20.0f, -10.0f, 0.0f, 10.0f, 20.0f, 30.0f })
+
+    // La légende, en haut à gauche.
     {
-        g.setColour ((settings.boost ? violet : ember).withAlpha (0.85f));
-        g.drawText ((db > 0 ? "+" : "") + String ((int) db), Rectangle<float> (32.0f, 14.0f).withCentre ({ plot.getRight() + 19.0f, yForChangeDb (db) }),
-                    Justification::centred, false);
+        float x = plot.getX();
+        const float y = plot.getY() - 20.0f;
+        g.setFont (monoFont (10.0f));
+        for (auto [colour, text] : { std::pair { ember, "SENSITIVITY" }, { ember.withAlpha (0.55f), "OUTPUT" }, { pale.withAlpha (0.6f), "INPUT" } })
+        {
+            g.setColour (colour);
+            g.fillRoundedRectangle (Rectangle<float> (x, y + 4.5f, 14.0f, 3.0f), 1.5f);
+            const float width = GlyphArrangement::getStringWidth (g.getCurrentFont(), text) + 4.0f;
+            g.setColour (haze);
+            g.drawText (text, Rectangle<float> (x + 20.0f, y, width, 12.0f), Justification::centredLeft, false);
+            x += 20.0f + width + 16.0f;
+        }
     }
 
-    auto pill = [&g] (Rectangle<float> r, const String& text, Colour led)
-    {
-        g.setColour (Colour (0xb3000000));
-        g.fillRoundedRectangle (r, r.getHeight() * 0.5f);
-        g.setColour (Colour (0x33ffd2d6));
-        g.drawRoundedRectangle (r, r.getHeight() * 0.5f, 1.0f);
-        g.setColour (led);
-        g.fillEllipse (Rectangle<float> (6.0f, 6.0f).withCentre ({ r.getX() + 13.0f, r.getCentreY() }));
-        g.setColour (mist);
-        g.setFont (monoFont (11.0f).boldened());
-        g.drawText (text, r.withTrimmedLeft (22.0f).withTrimmedRight (8.0f), Justification::centred, false);
-    };
-
-    // En haut à droite : la plus forte réduction du moment.
-    pill ({ plot.getRight() - 150.0f, plot.getY() + 8.0f, 140.0f, 24.0f },
-          String (settings.boost ? "BOOST " : "CUT ") + (deepest > 0.05f ? "+" : "") + String (deepest, 1) + " dB",
-          settings.boost ? violet : ember);
+    // En haut à droite : la plus forte réduction du moment, dans la pastille d'ONIRIQUE EQ.
+    const auto pill = Rectangle<float> (140.0f, 24.0f).withPosition (plot.getRight() + 40.0f - 140.0f, plot.getY() - 24.0f);
+    g.setColour (Colours::black.withAlpha (0.34f));
+    g.fillRoundedRectangle (pill, 12.0f);
+    g.setColour (Colour ((uint8) 255, (uint8) 214, (uint8) 218, 0.10f));
+    g.drawRoundedRectangle (pill.reduced (0.5f), 12.0f, 1.2f);
+    g.setColour (ember);
+    g.fillEllipse (Rectangle<float> (6.0f, 6.0f).withCentre ({ pill.getX() + 13.0f, pill.getCentreY() }));
+    g.setColour (mist);
+    g.setFont (monoFont (11.0f).boldened());
+    g.drawText (String (settings.boost ? "BOOST " : "CUT ") + (deepest > 0.05f ? "+" : "") + String (deepest, 1) + " dB",
+                pill.withTrimmedLeft (22.0f).withTrimmedRight (8.0f), Justification::centred, false);
 }
 
 void ShaperDisplay::resized()
 {
     const auto plot = plotArea();
-    panel->setBounds (Rectangle<int> (640, 132).withCentre ({ roundToInt (plot.getCentreX()), roundToInt (plot.getBottom() - 88.0f) })
-                          .constrainedWithin (getLocalBounds().reduced (12)));
+    const int width = jmin (700, roundToInt (plot.getWidth()) - 20), height = 180;
+    panel->setBounds (Rectangle<int> (width, height).withCentre ({ roundToInt (plot.getCentreX()), roundToInt (plot.getBottom() - 6.0f - (float) height * 0.5f) })
+                          .constrainedWithin (getLocalBounds()));
 }
 
 //==============================================================================
@@ -734,7 +823,7 @@ String ShaperDisplay::descriptionAt (Point<int> at) const
         return fr ("Glissez pour la fréquence et la sensibilité ; Cmd (Ctrl) en glissant ou la molette pour la largeur ; Alt en glissant pour l'écouter ; double-clic pour l'éteindre ou la rallumer.");
 
     if (plotArea().contains (at.toFloat()))
-        return fr ("En fond, le spectre qui entre. En rouge, ce qui est coupé en ce moment (en violet, ce qui est poussé), lu sur l'échelle de droite. La ligne blanche : la courbe de sensibilité, une pondération de la détection et non un EQ.");
+        return fr ("Le trait pâle : le spectre qui entre. La surface rouge : celui qui sort ; l'écart entre les deux, c'est ce que Shaper coupe (ou pousse) en ce moment. La ligne rouge lumineuse : la courbe de sensibilité, une pondération de la détection et non un EQ.");
 
     return {};
 }

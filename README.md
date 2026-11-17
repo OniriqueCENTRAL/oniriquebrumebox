@@ -47,11 +47,12 @@ l'effet sans DAW.
 - **Le pied**, sous l'écran, rangé comme celui de ResoBox : MIX, OUT (trim) | STEREO, LINK, BAL |
   WINDOW, PHASE. Resolution et oversample n'ont pas de bouton : ils gardent leur valeur, suivent
   les presets et l'automation.
-- **L'écran** : le spectre qui entre ; en rouge ce qui est coupé (en violet ce qui est poussé), sur
-  l'échelle de droite ; la courbe de sensibilité et ses cinq points (coupe-bas, trois bandes,
-  coupe-haut). Un point se glisse ; Cmd (Ctrl) en glissant ou la molette règle sa largeur ; Alt en
-  glissant le fait écouter ; double clic l'éteint. Un clic l'ouvre dans son panneau : forme (ou pente),
-  FREQ, SENS, Q, LISTEN.
+- **L'écran**, dessiné comme l'analyseur d'ONIRIQUE EQ : l'entrée en trait pâle, la sortie en surface
+  rouge (l'écart entre les deux = ce qui est coupé ou poussé), la courbe de sensibilité en rouge lumineux,
+  ses cinq points numérotés (LC, 1, 2, 3, HC), l'échelle en dB à droite et la légende en haut. Un point
+  se glisse ; Cmd (Ctrl) en glissant ou la molette règle sa largeur ; Alt en glissant le fait écouter ;
+  double clic l'éteint. Un clic l'ouvre dans son panneau de verre (celui de l'EQ, bosse au-dessus de SENS) :
+  marche, forme (ou pente), LISTEN, FREQ, SENS, Q, bande précédente / suivante, fermer.
 
 Laisser le curseur deux secondes sur un contrôle affiche sa description, en français.
 
