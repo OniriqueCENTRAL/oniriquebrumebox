@@ -1,4 +1,4 @@
-// Onirique BrumeBox — l'écran : spectre, réduction, et courbe de sensibilité
+// Onirique Shaper — l'écran : spectre, réduction, et courbe de sensibilité
 #pragma once
 
 #include "../PluginProcessor.h"
@@ -7,7 +7,7 @@
 namespace onirique
 {
 
-/** Tout ce que BrumeBox voit et fait, sur un seul axe des fréquences.
+/** Tout ce que Shaper voit et fait, sur un seul axe des fréquences.
 
     Du bas vers le haut : le spectre qui entre ; ce qui est coupé (pend de la
     ligne du milieu) ou poussé (monte) en ce moment ; et la courbe de
@@ -18,12 +18,12 @@ namespace onirique
     seulement), Cmd (Ctrl) en glissant ou la molette règle sa largeur, Alt en
     glissant fait écouter la bande, un double clic l'éteint ou la rallume. Un
     clic sur un point ouvre son panneau ; un clic dans le vide le referme. */
-class BrumeDisplay final : public Component,
+class ShaperDisplay final : public Component,
                            private Timer
 {
 public:
-    explicit BrumeDisplay (BrumeBoxProcessor&);
-    ~BrumeDisplay() override;
+    explicit ShaperDisplay (ShaperProcessor&);
+    ~ShaperDisplay() override;
 
     void paint (Graphics&) override;
     void resized() override;
@@ -41,7 +41,7 @@ public:
     int getSelected() const noexcept { return selected; }
 
     static Colour bandColour (int band);
-    static bool isCut (int band) noexcept { return band == 0 || band == bb::kNumBands - 1; }
+    static bool isCut (int band) noexcept { return band == 0 || band == shaper::kNumBands - 1; }
 
     /** Relit le moteur tout de suite, comme le ferait le minuteur (pour les captures sans boucle de messages). */
     void refreshNow() { timerCallback(); }
@@ -79,8 +79,8 @@ private:
         le plus fort (ou le plus bas) de la colonne dans les aigus. */
     float columnValue (const std::vector<float>&, float x, bool lowest) const;
 
-    BrumeBoxProcessor& processor;
-    bb::Settings settings;
+    ShaperProcessor& processor;
+    shaper::Settings settings;
 
     std::vector<float> inputDb, gainDb;
     double binHz = 23.4;
@@ -93,7 +93,7 @@ private:
 
     std::unique_ptr<BandPanel> panel;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BrumeDisplay)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ShaperDisplay)
 };
 
 } // namespace onirique

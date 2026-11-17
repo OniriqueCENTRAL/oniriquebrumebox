@@ -1,8 +1,8 @@
 // Rend l'interface dans un PNG, sans hôte, avec une boucle de batterie et une nappe qui la traversent,
 // pour regarder un changement d'interface tout droit sorti de la compilation.
 //
-//   brumebox_snapshot out.png [largeur hauteur] [--boost] [--closed] [--scale 2] [--tip x y]
-//   brumebox_snapshot --selftest
+//   shaper_snapshot out.png [largeur hauteur] [--boost] [--closed] [--scale 2] [--tip x y]
+//   shaper_snapshot --selftest
 #include "../Source/PluginEditor.h"
 #include "../Source/PluginProcessor.h"
 #include "../Source/Presets.h"
@@ -42,7 +42,7 @@ struct Director
     Director (juce::File destination, int width, int height, bool boost, juce::Point<int> tip, float scaleToUse, bool closed)
         : file (std::move (destination)), tipAt (tip), scale (scaleToUse)
     {
-        processor.reset (static_cast<onirique::BrumeBoxProcessor*> (createPluginFilter()));
+        processor.reset (static_cast<onirique::ShaperProcessor*> (createPluginFilter()));
         processor->setPlayConfigDetails (2, 2, kSr, kBlock);
         processor->prepareToPlay (kSr, kBlock);
 
@@ -69,7 +69,7 @@ struct Director
         editor.reset (processor->createEditor());
         editor->setSize (width, height);
 
-        if (auto* e = dynamic_cast<onirique::BrumeBoxEditor*> (editor.get()))
+        if (auto* e = dynamic_cast<onirique::ShaperEditor*> (editor.get()))
             e->getDisplay().select (closed ? -1 : 1);
     }
 
@@ -97,7 +97,7 @@ struct Director
             processor->processBlock (buffer, midi);
         }
 
-        if (auto* e = dynamic_cast<onirique::BrumeBoxEditor*> (editor.get()))
+        if (auto* e = dynamic_cast<onirique::ShaperEditor*> (editor.get()))
             e->getDisplay().refreshNow();
 
         // Prise juste après une frappe claquée, quand l'écran montre le plus.
@@ -105,7 +105,7 @@ struct Director
             return false;
 
         if (tipAt.x >= 0)
-            if (auto* e = dynamic_cast<onirique::BrumeBoxEditor*> (editor.get()))
+            if (auto* e = dynamic_cast<onirique::ShaperEditor*> (editor.get()))
                 e->pinDescription (tipAt);
 
         const auto image = editor->createComponentSnapshot (editor->getLocalBounds(), true, scale);
@@ -121,7 +121,7 @@ struct Director
     juce::File file;
     juce::Point<int> tipAt;
     float scale = 1.0f;
-    std::unique_ptr<onirique::BrumeBoxProcessor> processor;
+    std::unique_ptr<onirique::ShaperProcessor> processor;
     std::unique_ptr<juce::AudioProcessorEditor> editor;
     int position = 0, ticks = 0;
 };
@@ -138,7 +138,7 @@ int selftest()
         if (! ok) ++failures;
     };
 
-    std::unique_ptr<onirique::BrumeBoxProcessor> p (static_cast<onirique::BrumeBoxProcessor*> (createPluginFilter()));
+    std::unique_ptr<onirique::ShaperProcessor> p (static_cast<onirique::ShaperProcessor*> (createPluginFilter()));
 
     juce::StringArray unknown;
     for (const auto& f : onirique::presets::factory)
@@ -151,7 +151,7 @@ int selftest()
     p->loadFactoryPreset (3);   // Kick : attaque plus nette
     const auto s = p->readSettings();
     check (s.boost && std::abs (s.boostDepth - 4.5f) < 0.01f && s.bands[1].mode == 0 && std::abs (s.bands[1].freq - 120.0f) < 0.5f
-           && s.phase == bb::Phase::minimum && std::abs (s.cutDepth - 5.0f) < 0.01f,
+           && s.phase == shaper::Phase::minimum && std::abs (s.cutDepth - 5.0f) < 0.01f,
            "charger un preset d'usine : ses valeurs, et le reste par defaut (" + p->getPresetName() + ")");
 
     const auto name = juce::String ("zz test ") + juce::String (juce::Random::getSystemRandom().nextInt (100000));
@@ -167,6 +167,17 @@ int selftest()
         listed = listed || preset.name == name;
     check (listed, "il apparait dans la liste, sous MES PRESETS");
     file.deleteFile();
+
+    {   // un projet enregistré du temps de BrumeBox garde ses réglages
+        p->loadFactoryPreset (3);
+        auto xml = p->state.copyState().createXml();
+        xml->setTagName ("BrumeBox");
+        juce::MemoryBlock old;
+        juce::AudioProcessor::copyXmlToBinary (*xml, old);
+        p->loadFactoryPreset (0);
+        p->setStateInformation (old.getData(), (int) old.getSize());
+        check (p->readSettings().boost, "un projet BrumeBox s'ouvre avec ses reglages");
+    }
 
     const juce::File spiff ("/Library/Application Support/oeksound/spiff/Presets/full reset.preset");
     if (spiff.existsAsFile())
@@ -191,7 +202,7 @@ int main (int argc, char** argv)
 
     if (argc < 2)
     {
-        std::printf ("usage : brumebox_snapshot out.png [largeur hauteur] [--boost] [--tip x y]\n");
+        std::printf ("usage : shaper_snapshot out.png [largeur hauteur] [--boost] [--tip x y]\n");
         return 1;
     }
 

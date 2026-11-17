@@ -1,5 +1,5 @@
-// Onirique BrumeBox — l'écran
-#include "BrumeDisplay.h"
+// Onirique Shaper — l'écran
+#include "ShaperDisplay.h"
 
 namespace onirique
 {
@@ -15,7 +15,7 @@ namespace
 
     const Colour violet { 0xff9b8cff };
 
-    const char* const kBandNames[bb::kNumBands] = { "LOW CUT", "BAND 1", "BAND 2", "BAND 3", "HIGH CUT" };
+    const char* const kBandNames[shaper::kNumBands] = { "LOW CUT", "BAND 1", "BAND 2", "BAND 3", "HIGH CUT" };
 }
 
 //==============================================================================
@@ -73,10 +73,10 @@ public:
 };
 
 /** Le panneau de la bande choisie : posé sur l'écran, comme une île. */
-class BrumeDisplay::BandPanel final : public Component
+class ShaperDisplay::BandPanel final : public Component
 {
 public:
-    BandPanel (BrumeDisplay& d) : display (d)
+    BandPanel (ShaperDisplay& d) : display (d)
     {
         addAndMakeVisible (power);
         addAndMakeVisible (listen);
@@ -90,8 +90,8 @@ public:
             addAndMakeVisible (*k);
         }
 
-        previous.onClick = [this] { display.select ((band + bb::kNumBands - 1) % bb::kNumBands); };
-        next.onClick = [this] { display.select ((band + 1) % bb::kNumBands); };
+        previous.onClick = [this] { display.select ((band + shaper::kNumBands - 1) % shaper::kNumBands); };
+        next.onClick = [this] { display.select ((band + 1) % shaper::kNumBands); };
         close.onClick = [this] { display.select (-1); };
         for (auto* b : { &previous, &next, &close })
         {
@@ -109,22 +109,22 @@ public:
         powerAttachment.reset();
         modeAttachment.reset();
         mode.clear (dontSendNotification);
-        if (auto* p = dynamic_cast<AudioParameterChoice*> (state.getParameter (BrumeBoxProcessor::bandId (band, "mode"))))
+        if (auto* p = dynamic_cast<AudioParameterChoice*> (state.getParameter (ShaperProcessor::bandId (band, "mode"))))
             for (int i = 0; i < p->choices.size(); ++i)
                 mode.addItem (p->choices[i].toUpperCase(), i + 1);
 
         powerAttachment = std::make_unique<AudioProcessorValueTreeState::ButtonAttachment> (
-            state, BrumeBoxProcessor::bandId (band, "on"), power);
+            state, ShaperProcessor::bandId (band, "on"), power);
         modeAttachment = std::make_unique<AudioProcessorValueTreeState::ComboBoxAttachment> (
-            state, BrumeBoxProcessor::bandId (band, "mode"), mode);
+            state, ShaperProcessor::bandId (band, "mode"), mode);
 
-        freq.attach (state, BrumeBoxProcessor::bandId (band, "freq"));
+        freq.attach (state, ShaperProcessor::bandId (band, "freq"));
         sens.detach();
         q.detach();
         if (! cut)
         {
-            sens.attach (state, BrumeBoxProcessor::bandId (band, "sens"));
-            q.attach (state, BrumeBoxProcessor::bandId (band, "q"));
+            sens.attach (state, ShaperProcessor::bandId (band, "sens"));
+            q.attach (state, ShaperProcessor::bandId (band, "q"));
         }
         sens.setVisible (! cut);
         q.setVisible (! cut);
@@ -157,7 +157,7 @@ public:
         g.drawText (kBandNames[band], power.getRight() + 8, power.getY(), 110, power.getHeight(), Justification::centredLeft, false);
 
         g.setFont (monoFont (11.0f).boldened());
-        static const char* const shortNames[bb::kNumBands] = { "LC", "1", "2", "3", "HC" };
+        static const char* const shortNames[shaper::kNumBands] = { "LC", "1", "2", "3", "HC" };
         g.drawText (shortNames[band], previous.getRight(), previous.getY(), next.getX() - previous.getRight(),
                     previous.getHeight(), Justification::centred, false);
     }
@@ -200,7 +200,7 @@ public:
     int band = 1;
 
 private:
-    BrumeDisplay& display;
+    ShaperDisplay& display;
 
     RingButton power;
     ListenButton listen;
@@ -213,14 +213,14 @@ private:
 };
 
 //==============================================================================
-Colour BrumeDisplay::bandColour (int band)
+Colour ShaperDisplay::bandColour (int band)
 {
-    static const Colour colours[bb::kNumBands] = { Colour (0xffb9a7ab), Colour (0xffff7a59), Colour (0xffffc857),
+    static const Colour colours[shaper::kNumBands] = { Colour (0xffb9a7ab), Colour (0xffff7a59), Colour (0xffffc857),
                                                    Colour (0xff9b8cff), Colour (0xff5cd6e8) };
-    return colours[jlimit (0, bb::kNumBands - 1, band)];
+    return colours[jlimit (0, shaper::kNumBands - 1, band)];
 }
 
-BrumeDisplay::BrumeDisplay (BrumeBoxProcessor& p) : processor (p)
+ShaperDisplay::ShaperDisplay (ShaperProcessor& p) : processor (p)
 {
     panel = std::make_unique<BandPanel> (*this);
     addChildComponent (*panel);
@@ -229,12 +229,12 @@ BrumeDisplay::BrumeDisplay (BrumeBoxProcessor& p) : processor (p)
     startTimerHz (30);
 }
 
-BrumeDisplay::~BrumeDisplay()
+ShaperDisplay::~ShaperDisplay()
 {
     processor.listenBand = -1;
 }
 
-void BrumeDisplay::select (int band)
+void ShaperDisplay::select (int band)
 {
     selected = band;
 
@@ -255,14 +255,14 @@ void BrumeDisplay::select (int band)
     repaint();
 }
 
-void BrumeDisplay::setListening (int band)
+void ShaperDisplay::setListening (int band)
 {
     processor.listenBand = band;
     panel->listenChanged (band);
     repaint();
 }
 
-void BrumeDisplay::timerCallback()
+void ShaperDisplay::timerCallback()
 {
     settings = processor.readSettings();
 
@@ -301,63 +301,63 @@ void BrumeDisplay::timerCallback()
 }
 
 //==============================================================================
-Rectangle<float> BrumeDisplay::plotArea() const
+Rectangle<float> ShaperDisplay::plotArea() const
 {
     return getLocalBounds().toFloat().reduced (1.0f).withTrimmedLeft (38.0f).withTrimmedRight (38.0f)
                            .withTrimmedTop (12.0f).withTrimmedBottom (26.0f);
 }
 
-float BrumeDisplay::xForHz (float hz) const
+float ShaperDisplay::xForHz (float hz) const
 {
     const auto plot = plotArea();
     const auto t = std::log (jlimit (kMinHz, kMaxHz, hz) / kMinHz) / std::log (kMaxHz / kMinHz);
     return plot.getX() + t * plot.getWidth();
 }
 
-float BrumeDisplay::hzForX (float x) const
+float ShaperDisplay::hzForX (float x) const
 {
     const auto plot = plotArea();
     const auto t = jlimit (0.0f, 1.0f, (x - plot.getX()) / plot.getWidth());
     return kMinHz * std::pow (kMaxHz / kMinHz, t);
 }
 
-float BrumeDisplay::yForCurveDb (float db) const
+float ShaperDisplay::yForCurveDb (float db) const
 {
     const auto plot = plotArea();
     return plot.getCentreY() - db / kCurveRange * plot.getHeight() * 0.5f;
 }
 
-float BrumeDisplay::curveDbForY (float y) const
+float ShaperDisplay::curveDbForY (float y) const
 {
     const auto plot = plotArea();
     return (plot.getCentreY() - y) / (plot.getHeight() * 0.5f) * kCurveRange;
 }
 
-float BrumeDisplay::yForChangeDb (float db) const
+float ShaperDisplay::yForChangeDb (float db) const
 {
     const auto plot = plotArea();
     return plot.getCentreY() - db / kChangeRange * plot.getHeight() * 0.5f;
 }
 
-float BrumeDisplay::yForSpectrumDb (float db) const
+float ShaperDisplay::yForSpectrumDb (float db) const
 {
     const auto plot = plotArea();
     const auto t = jlimit (0.0f, 1.0f, (db - kSpectrumFloor) / -kSpectrumFloor);
     return plot.getBottom() - t * plot.getHeight();
 }
 
-Point<float> BrumeDisplay::nodePosition (int band) const
+Point<float> ShaperDisplay::nodePosition (int band) const
 {
     const auto& b = settings.bands[band];
     return { xForHz (b.freq), isCut (band) ? yForCurveDb (0.0f) : yForCurveDb (b.sens) };
 }
 
-int BrumeDisplay::nodeAt (Point<float> p) const
+int ShaperDisplay::nodeAt (Point<float> p) const
 {
     int best = -1;
     float bestDistance = 12.0f;
 
-    for (int b = 0; b < bb::kNumBands; ++b)
+    for (int b = 0; b < shaper::kNumBands; ++b)
     {
         const auto d = nodePosition (b).getDistanceFrom (p);
         if (d < bestDistance)
@@ -369,7 +369,7 @@ int BrumeDisplay::nodeAt (Point<float> p) const
     return best;
 }
 
-float BrumeDisplay::columnValue (const std::vector<float>& values, float x, bool lowest) const
+float ShaperDisplay::columnValue (const std::vector<float>& values, float x, bool lowest) const
 {
     const auto lo = hzForX (x - 1.0f), hi = hzForX (x + 1.0f);
     const int last = (int) values.size() - 1;
@@ -390,7 +390,7 @@ float BrumeDisplay::columnValue (const std::vector<float>& values, float x, bool
 }
 
 //==============================================================================
-void BrumeDisplay::paint (Graphics& g)
+void ShaperDisplay::paint (Graphics& g)
 {
     // posé sur le fond, sans cadre
 
@@ -408,7 +408,7 @@ void BrumeDisplay::paint (Graphics& g)
     paintReadouts (g, plot);
 }
 
-void BrumeDisplay::paintGrid (Graphics& g, Rectangle<float> plot)
+void ShaperDisplay::paintGrid (Graphics& g, Rectangle<float> plot)
 {
     for (float hz : { 30.0f, 50.0f, 100.0f, 200.0f, 500.0f, 1000.0f, 2000.0f, 5000.0f, 10000.0f })
     {
@@ -427,7 +427,7 @@ void BrumeDisplay::paintGrid (Graphics& g, Rectangle<float> plot)
     g.drawHorizontalLine (roundToInt (plot.getCentreY()), plot.getX(), plot.getRight());
 }
 
-void BrumeDisplay::paintSpectrum (Graphics& g, Rectangle<float> plot)
+void ShaperDisplay::paintSpectrum (Graphics& g, Rectangle<float> plot)
 {
     if (inputDb.empty())
         return;
@@ -449,7 +449,7 @@ void BrumeDisplay::paintSpectrum (Graphics& g, Rectangle<float> plot)
     g.strokePath (fill, PathStrokeType (1.0f));
 }
 
-void BrumeDisplay::paintChange (Graphics& g, Rectangle<float> plot)
+void ShaperDisplay::paintChange (Graphics& g, Rectangle<float> plot)
 {
     if (gainDb.empty())
         return;
@@ -471,7 +471,7 @@ void BrumeDisplay::paintChange (Graphics& g, Rectangle<float> plot)
     g.strokePath (shape, PathStrokeType (1.2f));
 }
 
-void BrumeDisplay::paintCurve (Graphics& g, Rectangle<float> plot)
+void ShaperDisplay::paintCurve (Graphics& g, Rectangle<float> plot)
 {
     // La forme de la bande choisie, en couleur, sous la courbe.
     if (selected >= 0 && settings.bands[selected].on)
@@ -479,7 +479,7 @@ void BrumeDisplay::paintCurve (Graphics& g, Rectangle<float> plot)
         Path own;
         own.startNewSubPath (plot.getX(), plot.getCentreY());
         for (float x = plot.getX(); x <= plot.getRight(); x += 2.0f)
-            own.lineTo (x, yForCurveDb (jmax (-kCurveRange, bb::bandDb (settings, selected, hzForX (x)))));
+            own.lineTo (x, yForCurveDb (jmax (-kCurveRange, shaper::bandDb (settings, selected, hzForX (x)))));
         own.lineTo (plot.getRight(), plot.getCentreY());
         own.closeSubPath();
 
@@ -493,7 +493,7 @@ void BrumeDisplay::paintCurve (Graphics& g, Rectangle<float> plot)
         Path zone;
         zone.startNewSubPath (plot.getX(), plot.getBottom());
         for (float x = plot.getX(); x <= plot.getRight(); x += 2.0f)
-            zone.lineTo (x, plot.getBottom() - bb::bandCoverage (settings, listening, hzForX (x)) * plot.getHeight());
+            zone.lineTo (x, plot.getBottom() - shaper::bandCoverage (settings, listening, hzForX (x)) * plot.getHeight());
         zone.lineTo (plot.getRight(), plot.getBottom());
         zone.closeSubPath();
         g.setColour (bandColour (listening).withAlpha (0.10f));
@@ -503,7 +503,7 @@ void BrumeDisplay::paintCurve (Graphics& g, Rectangle<float> plot)
     Path curve;
     for (float x = plot.getX(); x <= plot.getRight(); x += 2.0f)
     {
-        const auto y = yForCurveDb (jmax (-kCurveRange - 2.0f, bb::sensitivityDb (settings, hzForX (x))));
+        const auto y = yForCurveDb (jmax (-kCurveRange - 2.0f, shaper::sensitivityDb (settings, hzForX (x))));
         if (x == plot.getX())
             curve.startNewSubPath (x, y);
         else
@@ -515,7 +515,7 @@ void BrumeDisplay::paintCurve (Graphics& g, Rectangle<float> plot)
     g.setColour (Colours::white);
     g.strokePath (curve, PathStrokeType (2.0f, PathStrokeType::curved, PathStrokeType::rounded));
 
-    for (int b = 0; b < bb::kNumBands; ++b)
+    for (int b = 0; b < shaper::kNumBands; ++b)
     {
         const auto p = nodePosition (b);
         const auto colour = bandColour (b);
@@ -549,7 +549,7 @@ void BrumeDisplay::paintCurve (Graphics& g, Rectangle<float> plot)
     }
 }
 
-void BrumeDisplay::paintReadouts (Graphics& g, Rectangle<float> plot)
+void ShaperDisplay::paintReadouts (Graphics& g, Rectangle<float> plot)
 {
     g.setFont (monoFont (10.0f));
 
@@ -591,7 +591,7 @@ void BrumeDisplay::paintReadouts (Graphics& g, Rectangle<float> plot)
     static const char* oversamples[] = { "1X", "2X", "4X" };
     pill ({ plot.getX() + 10.0f, plot.getY() + 8.0f, 230.0f, 24.0f },
           String (windows[(int) settings.window]) + " · " + oversamples[jlimit (0, 2, settings.oversample)] + " · "
-              + (settings.highResolution ? "HIGH RES" : "NORMAL") + " · " + (settings.phase == bb::Phase::minimum ? "MIN" : "LIN"),
+              + (settings.highResolution ? "HIGH RES" : "NORMAL") + " · " + (settings.phase == shaper::Phase::minimum ? "MIN" : "LIN"),
           haze);
 
     pill ({ plot.getRight() - 150.0f, plot.getY() + 8.0f, 140.0f, 24.0f },
@@ -599,7 +599,7 @@ void BrumeDisplay::paintReadouts (Graphics& g, Rectangle<float> plot)
           settings.boost ? violet : ember);
 }
 
-void BrumeDisplay::resized()
+void ShaperDisplay::resized()
 {
     const auto plot = plotArea();
     panel->setBounds (Rectangle<int> (640, 132).withCentre ({ roundToInt (plot.getCentreX()), roundToInt (plot.getBottom() - 88.0f) })
@@ -607,20 +607,20 @@ void BrumeDisplay::resized()
 }
 
 //==============================================================================
-void BrumeDisplay::setParam (const String& id, float value)
+void ShaperDisplay::setParam (const String& id, float value)
 {
     if (auto* p = processor.state.getParameter (id))
         p->setValueNotifyingHost (p->convertTo0to1 (value));
 }
 
-void BrumeDisplay::gesture (int band, bool begin)
+void ShaperDisplay::gesture (int band, bool begin)
 {
     for (auto* what : { "freq", "sens", "q" })
-        if (auto* p = processor.state.getParameter (BrumeBoxProcessor::bandId (band, what)))
+        if (auto* p = processor.state.getParameter (ShaperProcessor::bandId (band, what)))
             begin ? p->beginChangeGesture() : p->endChangeGesture();
 }
 
-void BrumeDisplay::mouseMove (const MouseEvent& e)
+void ShaperDisplay::mouseMove (const MouseEvent& e)
 {
     const auto now = nodeAt (e.position);
     if (now != hovered)
@@ -631,13 +631,13 @@ void BrumeDisplay::mouseMove (const MouseEvent& e)
     }
 }
 
-void BrumeDisplay::mouseExit (const MouseEvent&)
+void ShaperDisplay::mouseExit (const MouseEvent&)
 {
     hovered = -1;
     repaint();
 }
 
-void BrumeDisplay::mouseDown (const MouseEvent& e)
+void ShaperDisplay::mouseDown (const MouseEvent& e)
 {
     const auto node = nodeAt (e.position);
 
@@ -662,7 +662,7 @@ void BrumeDisplay::mouseDown (const MouseEvent& e)
     }
 }
 
-void BrumeDisplay::mouseDrag (const MouseEvent& e)
+void ShaperDisplay::mouseDrag (const MouseEvent& e)
 {
     if (dragging < 0)
         return;
@@ -673,13 +673,13 @@ void BrumeDisplay::mouseDrag (const MouseEvent& e)
     if (e.mods.isCommandDown() && ! isCut (dragging))
     {
         const auto q = jlimit (0.1f, 10.0f, dragStartQ * std::pow (2.0f, (dragStartY - e.position.y) / 60.0f));
-        setParam (BrumeBoxProcessor::bandId (dragging, "q"), q);
+        setParam (ShaperProcessor::bandId (dragging, "q"), q);
     }
     else
     {
-        setParam (BrumeBoxProcessor::bandId (dragging, "freq"), hzForX (jlimit (plot.getX(), plot.getRight(), e.position.x)));
+        setParam (ShaperProcessor::bandId (dragging, "freq"), hzForX (jlimit (plot.getX(), plot.getRight(), e.position.x)));
         if (! isCut (dragging))
-            setParam (BrumeBoxProcessor::bandId (dragging, "sens"),
+            setParam (ShaperProcessor::bandId (dragging, "sens"),
                       jlimit (-18.0f, 18.0f, curveDbForY (jlimit (plot.getY(), plot.getBottom(), e.position.y))));
     }
 
@@ -687,7 +687,7 @@ void BrumeDisplay::mouseDrag (const MouseEvent& e)
     repaint();
 }
 
-void BrumeDisplay::mouseUp (const MouseEvent&)
+void ShaperDisplay::mouseUp (const MouseEvent&)
 {
     if (dragging >= 0)
         gesture (dragging, false);
@@ -700,13 +700,13 @@ void BrumeDisplay::mouseUp (const MouseEvent&)
     }
 }
 
-void BrumeDisplay::mouseDoubleClick (const MouseEvent& e)
+void ShaperDisplay::mouseDoubleClick (const MouseEvent& e)
 {
     const auto node = nodeAt (e.position);
     if (node < 0)
         return;
 
-    if (auto* p = processor.state.getParameter (BrumeBoxProcessor::bandId (node, "on")))
+    if (auto* p = processor.state.getParameter (ShaperProcessor::bandId (node, "on")))
     {
         p->beginChangeGesture();
         p->setValueNotifyingHost (p->getValue() > 0.5f ? 0.0f : 1.0f);
@@ -714,7 +714,7 @@ void BrumeDisplay::mouseDoubleClick (const MouseEvent& e)
     }
 }
 
-void BrumeDisplay::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& wheel)
+void ShaperDisplay::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails& wheel)
 {
     auto node = nodeAt (e.position);
     if (node < 0)
@@ -722,7 +722,7 @@ void BrumeDisplay::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails&
     if (node < 0 || isCut (node))
         return;
 
-    const auto id = BrumeBoxProcessor::bandId (node, "q");
+    const auto id = ShaperProcessor::bandId (node, "q");
     if (auto* p = processor.state.getParameter (id))
     {
         const auto q = processor.state.getRawParameterValue (id)->load();
@@ -732,7 +732,7 @@ void BrumeDisplay::mouseWheelMove (const MouseEvent& e, const MouseWheelDetails&
     }
 }
 
-String BrumeDisplay::descriptionAt (Point<int> at) const
+String ShaperDisplay::descriptionAt (Point<int> at) const
 {
     if (panel->isVisible() && panel->getBounds().contains (at))
         return fr ("La bande choisie : FREQ la place, SENS donne plus (au-dessus de 0) ou moins (en dessous) de traitement ici, jusqu'à rien à -18 dB, Q sa largeur. Le menu choisit sa forme (ou la pente des coupes). LISTEN fait entendre ce qui change dans sa zone. Le rond l'allume ou l'éteint.");

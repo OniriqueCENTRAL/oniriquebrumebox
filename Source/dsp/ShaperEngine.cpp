@@ -1,10 +1,10 @@
-// Onirique BrumeBox — moteur : processeur de transitoires spectral
-#include "BrumeEngine.h"
+// Onirique Shaper — moteur : processeur de transitoires spectral
+#include "ShaperEngine.h"
 
 #include <algorithm>
 #include <cmath>
 
-namespace bb
+namespace shaper
 {
 
 namespace
@@ -108,14 +108,14 @@ float bandCoverage (const Settings& s, int band, float hz) noexcept
 }
 
 //==============================================================================
-int BrumeEngine::latencyFor (double sr, Window w, int oversample) noexcept
+int ShaperEngine::latencyFor (double sr, Window w, int oversample) noexcept
 {
     const int n = baseFrame (w) * scaleFor (sr);
     const int m = n << std::clamp (oversample, 0, 2);
     return (m + n) / 2;
 }
 
-void BrumeEngine::prepare (double sr, int channels)
+void ShaperEngine::prepare (double sr, int channels)
 {
     sampleRate = sr;
     numCh = std::clamp (channels, 1, kMaxChannels);
@@ -156,7 +156,7 @@ void BrumeEngine::prepare (double sr, int channels)
     configure();
 }
 
-void BrumeEngine::configure() noexcept
+void ShaperEngine::configure() noexcept
 {
     activeWindow = settings.window;
     activeOversample = std::clamp (settings.oversample, 0, 2);
@@ -192,7 +192,7 @@ void BrumeEngine::configure() noexcept
     reset();
 }
 
-void BrumeEngine::reset() noexcept
+void ShaperEngine::reset() noexcept
 {
     for (int ch = 0; ch < kMaxChannels; ++ch)
     {
@@ -209,7 +209,7 @@ void BrumeEngine::reset() noexcept
     hopCount = 0;
 }
 
-void BrumeEngine::setSettings (const Settings& s) noexcept
+void ShaperEngine::setSettings (const Settings& s) noexcept
 {
     const auto& k = weightKey;
     bool changed = s.sharpness != k.sharpness || s.decay != k.decay || s.decayLfHf != k.decayLfHf
@@ -223,7 +223,7 @@ void BrumeEngine::setSettings (const Settings& s) noexcept
     settings = s;
 }
 
-void BrumeEngine::updateWeights() noexcept
+void ShaperEngine::updateWeights() noexcept
 {
     weightsDirty = false;
     weightKey = settings;
@@ -263,7 +263,7 @@ void BrumeEngine::updateWeights() noexcept
     }
 }
 
-void BrumeEngine::smoothAcross (const float* in, float* out) noexcept
+void ShaperEngine::smoothAcross (const float* in, float* out) noexcept
 {
     prefix[0] = 0.0f;
     for (int k = 0; k < bins; ++k)
@@ -277,7 +277,7 @@ void BrumeEngine::smoothAcross (const float* in, float* out) noexcept
     }
 }
 
-void BrumeEngine::minimumPhase (const float* gain, std::complex<float>* out) noexcept
+void ShaperEngine::minimumPhase (const float* gain, std::complex<float>* out) noexcept
 {
     // Cepstre réel du logarithme du gain, replié sur les temps positifs : la même amplitude, sans pré-écho.
     for (int k = 0; k < bins; ++k)
@@ -299,7 +299,7 @@ void BrumeEngine::minimumPhase (const float* gain, std::complex<float>* out) noe
         out[k] = std::exp (cep[(size_t) k]);
 }
 
-void BrumeEngine::processFrame() noexcept
+void ShaperEngine::processFrame() noexcept
 {
     const Settings& s = settings;
     const bool stereo = numCh == 2;
@@ -448,7 +448,7 @@ void BrumeEngine::processFrame() noexcept
     }
 }
 
-void BrumeEngine::process (float* const* io, int channels, int numSamples) noexcept
+void ShaperEngine::process (float* const* io, int channels, int numSamples) noexcept
 {
     if (settings.window != activeWindow || std::clamp (settings.oversample, 0, 2) != activeOversample
         || settings.highResolution != activeHighRes)
@@ -498,4 +498,4 @@ void BrumeEngine::process (float* const* io, int channels, int numSamples) noexc
     }
 }
 
-} // namespace bb
+} // namespace shaper

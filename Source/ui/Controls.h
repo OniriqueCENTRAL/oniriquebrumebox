@@ -1,4 +1,4 @@
-// Onirique BrumeBox (repris de ResoBox) — the two kinds of control every panel is made of
+// Onirique Shaper (repris de ResoBox) — the two kinds of control every panel is made of
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>

@@ -1,7 +1,7 @@
 //==============================================================================
-//  brumebox_demo : la démo interactive de BrumeBox pour ONIRIQUE CENTRAL, faite sur Mac.
+//  shaper_demo : la démo interactive de Shaper pour ONIRIQUE CENTRAL, faite sur Mac.
 //
-//      brumebox_demo <dossier de sortie> [images par réglage, 12 par défaut]
+//      shaper_demo <dossier de sortie> [images par réglage, 12 par défaut]
 //
 //  Le même travail qu'onirique-probe (tools/probe du dépôt ONIRIQUE CENTRAL), qui ne tourne que sous
 //  Windows : chaque réglage est balayé de son minimum à son maximum, la zone de l'interface qui change est
@@ -22,14 +22,14 @@ namespace
 {
 
 /** Le temps passe (les animations avancent), et l'écran relit l'état comme le ferait son minuteur. */
-void pump (onirique::BrumeBoxEditor& editor, int milliseconds)
+void pump (onirique::ShaperEditor& editor, int milliseconds)
 {
     juce::Thread::sleep (milliseconds);
     editor.getDisplay().refreshNow();
 }
 
 /** L'interface, dessinée hors écran, en RVB comme les captures du probe. */
-juce::Image capture (onirique::BrumeBoxEditor& editor)
+juce::Image capture (onirique::ShaperEditor& editor)
 {
     const auto argb = editor.createComponentSnapshot (editor.getLocalBounds(), true, 1.0f);
     juce::Image rgb (juce::Image::RGB, argb.getWidth(), argb.getHeight(), true);
@@ -150,7 +150,7 @@ juce::String toDataUrl (const juce::Image& image)
     return "data:image/png;base64," + juce::Base64::toBase64 (png.getData(), png.getDataSize());
 }
 
-void restoreDefaults (juce::AudioProcessor& plugin, onirique::BrumeBoxEditor& editor)
+void restoreDefaults (juce::AudioProcessor& plugin, onirique::ShaperEditor& editor)
 {
     for (auto* parameter : plugin.getParameters())
         if (std::abs (parameter->getValue() - parameter->getDefaultValue()) > 1.0e-6f)
@@ -165,7 +165,7 @@ int main (int argc, char** argv)
 {
     if (argc < 2)
     {
-        std::cout << "usage : brumebox_demo <dossier de sortie> [images par reglage]" << std::endl;
+        std::cout << "usage : shaper_demo <dossier de sortie> [images par reglage]" << std::endl;
         return 2;
     }
 
@@ -179,7 +179,7 @@ int main (int argc, char** argv)
     plugin->setPlayConfigDetails (2, 2, 48000.0, 512);
     plugin->prepareToPlay (48000.0, 512);
 
-    std::unique_ptr<onirique::BrumeBoxEditor> editor (dynamic_cast<onirique::BrumeBoxEditor*> (plugin->createEditorIfNeeded()));
+    std::unique_ptr<onirique::ShaperEditor> editor (dynamic_cast<onirique::ShaperEditor*> (plugin->createEditorIfNeeded()));
     if (editor == nullptr)
     {
         std::cout << "ERREUR pas d'interface" << std::endl;

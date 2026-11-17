@@ -8,6 +8,13 @@ using namespace juce;
 
 OniriqueLookAndFeel::OniriqueLookAndFeel()
 {
+    onirique::look::load();   // la couleur de l'interface choisie (avant de copier les couleurs)
+    applyColours();
+}
+
+// les couleurs des menus, champs et boutons : recopiées ici, et de nouveau quand la couleur de l'interface change
+void OniriqueLookAndFeel::applyColours()
+{
     setColour (ResizableWindow::backgroundColourId, night);
     setColour (Label::textColourId, mist);
     setColour (ComboBox::backgroundColourId, Colour (0x59000000));
@@ -53,8 +60,10 @@ void OniriqueLookAndFeel::drawRotarySlider (Graphics& g, int x, int y, int width
     };
 
     // Bipolar controls fill outwards from the middle, so "no change" reads as
-    // an empty arc rather than as a half-full one.
-    const auto bipolar = (slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0) || properties.contains ("bipolar");
+    // an empty arc rather than as a half-full one. A level in dB crosses zero
+    // without being one of them, and says so.
+    const auto bipolar = ! properties.contains ("unipolar")
+                         && ((slider.getMinimum() < 0.0 && slider.getMaximum() > 0.0) || properties.contains ("bipolar"));
 
     // The ONIRIQUE knob, the same in every plugin of the brand (Source/ui/OniriqueKnob.h).
     onirique::ui::drawKnob (g, bounds, sliderPos, startAngle, endAngle, accent, bipolar, slider.isMouseOverOrDragging());
@@ -91,8 +100,8 @@ void OniriqueLookAndFeel::drawButtonBackground (Graphics& g, Button& button, con
         g.setColour (ember.withAlpha (0.18f));
         g.drawRoundedRectangle (bounds.expanded (2.0f), radius + 2.0f, 3.0f);
 
-        g.setGradientFill (ColourGradient (Colour (0xff6e0f1a), 0.0f, bounds.getY(),
-                                           Colour (0xff3a060c), 0.0f, bounds.getBottom(), false));
+        g.setGradientFill (ColourGradient (onirique::look::tint (0xff6e0f1a), 0.0f, bounds.getY(),
+                                           onirique::look::tint (0xff3a060c), 0.0f, bounds.getBottom(), false));
     }
     else
     {
@@ -111,6 +120,33 @@ void OniriqueLookAndFeel::drawButtonBackground (Graphics& g, Button& button, con
     // The little LED that marks an engaged control on every Onirique plugin.
     const auto led = Rectangle<float> (7.0f, 7.0f)
                          .withCentre ({ bounds.getX() + radius * 0.9f, bounds.getCentreY() });
+
+    // Or the four-pointed star, as on the licence badge's « Activé ».
+    if (button.getProperties().contains ("star"))
+    {
+        auto star = [c = led.getCentre()] (float r)
+        {
+            Path p;
+            const auto w = r * 0.24f * 0.35f;
+            p.startNewSubPath (c.x, c.y - r);
+            p.quadraticTo (c.x + w, c.y - w, c.x + r, c.y);
+            p.quadraticTo (c.x + w, c.y + w, c.x, c.y + r);
+            p.quadraticTo (c.x - w, c.y + w, c.x - r, c.y);
+            p.quadraticTo (c.x - w, c.y - w, c.x, c.y - r);
+            p.closeSubPath();
+            return p;
+        };
+
+        if (on)
+        {
+            g.setColour (ember.withAlpha (0.35f));
+            g.fillPath (star (7.5f));
+        }
+
+        g.setColour (on ? emberLit.interpolatedWith (bone, 0.35f) : Colour (0x33ffd2d6));
+        g.fillPath (star (5.0f));
+        return;
+    }
 
     g.setColour (on ? ember : Colour (0x33ffd2d6));
     g.fillEllipse (led);
@@ -260,6 +296,50 @@ int OniriqueLookAndFeel::getMenuWindowFlags()
     return 0;
 }
 
+//==============================================================================
+namespace
+{
+    constexpr int kTooltipWidth = 250;
+
+    TextLayout layoutTooltip (const String& text)
+    {
+        AttributedString s;
+        s.setJustification (Justification::centredLeft);
+        s.append (text, displayFont (12.5f, false), mist);
+
+        TextLayout layout;
+        layout.createLayout (s, (float) kTooltipWidth);
+        return layout;
+    }
+}
+
+Rectangle<int> OniriqueLookAndFeel::getTooltipBounds (const String& text, Point<int> screenPos,
+                                                      Rectangle<int> parentArea)
+{
+    const auto layout = layoutTooltip (text);
+    const auto width = roundToInt (layout.getWidth()) + 22;
+    const auto height = roundToInt (layout.getHeight()) + 14;
+
+    // Below and to the right of the pointer, or on the other side when that
+    // would run off the edge.
+    return Rectangle<int> (screenPos.x > parentArea.getCentreX() ? screenPos.x - width - 12 : screenPos.x + 18,
+                           screenPos.y > parentArea.getCentreY() ? screenPos.y - height - 10 : screenPos.y + 18,
+                           width, height)
+               .constrainedWithin (parentArea);
+}
+
+void OniriqueLookAndFeel::drawTooltip (Graphics& g, const String& text, int width, int height)
+{
+    const auto bounds = Rectangle<float> (0.0f, 0.0f, (float) width, (float) height).reduced (0.5f);
+
+    g.setGradientFill (ColourGradient (onirique::look::tint (0xff3d0911), 0.0f, 0.0f, onirique::look::tint (0xff1c0508), 0.0f, (float) height, false));
+    g.fillRoundedRectangle (bounds, 7.0f);
+    g.setColour (ember.withAlpha (0.6f));
+    g.drawRoundedRectangle (bounds, 7.0f, 1.0f);
+
+    layoutTooltip (text).draw (g, bounds.reduced (11.0f, 7.0f));
+}
+
 Font OniriqueLookAndFeel::getLabelFont (Label& label)
 {
     if (label.getProperties().contains ("box"))
@@ -277,7 +357,7 @@ void OniriqueLookAndFeel::drawLabel (Graphics& g, Label& label)
         const auto box = label.getLocalBounds().toFloat().reduced (0.5f);
         const auto corner = box.getHeight() * 0.5f;
 
-        g.setColour (Colour (0xff1c070b));
+        g.setColour (onirique::look::tint (0xff1c070b));
         g.fillRoundedRectangle (box, corner);
         g.setColour (ember.withAlpha (0.2f));
         g.drawRoundedRectangle (box.expanded (1.5f), corner + 1.5f, 3.0f);
@@ -321,50 +401,6 @@ void OniriqueLookAndFeel::drawLabel (Graphics& g, Label& label)
     g.setColour (mist.withMultipliedAlpha (label.isEnabled() ? 1.0f : 0.4f));
     g.setFont (getLabelFont (label));
     g.drawText (label.getText(), bounds.withTrimmedLeft (radius * 0.9f), Justification::centred, false);
-}
-
-//==============================================================================
-namespace
-{
-    constexpr int kTooltipWidth = 260;
-
-    TextLayout layoutTooltip (const String& text)
-    {
-        AttributedString s;
-        s.setJustification (Justification::centredLeft);
-        s.append (text, displayFont (12.5f, false), mist);
-
-        TextLayout layout;
-        layout.createLayout (s, (float) kTooltipWidth);
-        return layout;
-    }
-}
-
-Rectangle<int> OniriqueLookAndFeel::getTooltipBounds (const String& text, Point<int> screenPos,
-                                                      Rectangle<int> parentArea)
-{
-    const auto layout = layoutTooltip (text);
-    const auto width = roundToInt (layout.getWidth()) + 22;
-    const auto height = roundToInt (layout.getHeight()) + 14;
-
-    // Below and to the right of the pointer, or on the other side when that
-    // would run off the edge.
-    return Rectangle<int> (screenPos.x > parentArea.getCentreX() ? screenPos.x - width - 12 : screenPos.x + 18,
-                           screenPos.y > parentArea.getCentreY() ? screenPos.y - height - 10 : screenPos.y + 18,
-                           width, height)
-               .constrainedWithin (parentArea);
-}
-
-void OniriqueLookAndFeel::drawTooltip (Graphics& g, const String& text, int width, int height)
-{
-    const auto bounds = Rectangle<float> (0.0f, 0.0f, (float) width, (float) height).reduced (0.5f);
-
-    g.setGradientFill (ColourGradient (Colour (0xff3d0911), 0.0f, 0.0f, Colour (0xff1c0508), 0.0f, (float) height, false));
-    g.fillRoundedRectangle (bounds, 7.0f);
-    g.setColour (ember.withAlpha (0.6f));
-    g.drawRoundedRectangle (bounds, 7.0f, 1.0f);
-
-    layoutTooltip (text).draw (g, bounds.reduced (11.0f, 7.0f));
 }
 
 } // namespace onirique::theme

@@ -1,6 +1,6 @@
-// Onirique BrumeBox — test hors ligne du moteur, sans hôte ni JUCE.
+// Onirique Shaper — test hors ligne du moteur, sans hôte ni JUCE.
 // Usage : test_engine [dossier]   (écrit aussi des .wav d'écoute dans ce dossier)
-#include "dsp/BrumeEngine.h"
+#include "dsp/ShaperEngine.h"
 
 #include <cmath>
 #include <cstdint>
@@ -49,9 +49,9 @@ Signal makeSignal (double seconds, float tone = 0.15f)
 
 struct Result { std::vector<float> l, r; std::vector<float> shareAtHit, shareBetween; int latency = 0; };
 
-Result run (const bb::Settings& s, const Signal& in)
+Result run (const shaper::Settings& s, const Signal& in)
 {
-    bb::BrumeEngine e;
+    shaper::ShaperEngine e;
     e.setSettings (s);
     e.prepare (kSr, 2);
     e.setSettings (s);
@@ -144,9 +144,9 @@ int main (int argc, char** argv)
                 for (int res = 0; res < 2; ++res)
                     for (int ph = 0; ph < 2; ++ph)
                     {
-                        auto s = bb::defaultSettings();
+                        auto s = shaper::defaultSettings();
                         s.cutDepth = 0;
-                        s.window = (bb::Window) w; s.oversample = os; s.highResolution = res; s.phase = (bb::Phase) ph;
+                        s.window = (shaper::Window) w; s.oversample = os; s.highResolution = res; s.phase = (shaper::Phase) ph;
                         const auto out = run (s, in);
                         const auto db = reconstructionDb (out, in.l, out.l);
                         worst = std::min (worst, db);
@@ -162,7 +162,7 @@ int main (int argc, char** argv)
 
     // 2. Détection : les frappes, pas la note tenue.
     {
-        auto s = bb::defaultSettings();
+        auto s = shaper::defaultSettings();
         s.cutDepth = 0;
         const auto out = run (s, in);
         std::printf ("      part detectee : %.3f sur les frappes, %.3f entre elles\n", mean (out.shareAtHit), mean (out.shareBetween));
@@ -171,12 +171,12 @@ int main (int argc, char** argv)
 
     // 3. Cut et boost.
     {
-        auto s = bb::defaultSettings();
+        auto s = shaper::defaultSettings();
         s.cutDepth = 10;
         const auto cut = run (s, clicks);
         s.boost = true; s.boostDepth = 10;
         const auto boost = run (s, clicks);
-        s.phase = bb::Phase::minimum;
+        s.phase = shaper::Phase::minimum;
         const auto boostMin = run (s, clicks);
         std::printf ("      frappes : cut %.1f dB, boost %+.1f dB, boost phase minimale %+.1f dB\n",
                      hitsDb (cut, clicks), hitsDb (boost, clicks), hitsDb (boostMin, clicks));
@@ -187,16 +187,16 @@ int main (int argc, char** argv)
 
     // 4. Les bandes : -18 dB partout, et les coupe-bas / coupe-haut, font ignorer.
     {
-        auto s = bb::defaultSettings();
+        auto s = shaper::defaultSettings();
         s.cutDepth = 10;
-        s.bands[1] = { true, 20000.0f, -18.0f, 2.0f, (int) bb::BandMode::lowShelf };
+        s.bands[1] = { true, 20000.0f, -18.0f, 2.0f, (int) shaper::BandMode::lowShelf };
         s.bands[2].on = false;
         s.bands[3].on = false;
         const auto quiet = run (s, clicks);
         std::printf ("      etagere grave a -18 dB sur tout le spectre : frappes %.1f dB\n", hitsDb (quiet, clicks));
         check (hitsDb (quiet, clicks) > -3.0, "une bande a -18 dB ne laisse presque plus rien traiter (sous 20 kHz)");
 
-        auto c = bb::defaultSettings();
+        auto c = shaper::defaultSettings();
         c.cutDepth = 10;
         c.bands[0] = { true, 18000.0f, 0.0f, 0.7f, 3 };
         const auto lowcut = run (c, clicks);
@@ -206,7 +206,7 @@ int main (int argc, char** argv)
 
     // 5. Stéréo : balance 100/0 en L/R ne touche pas la droite.
     {
-        auto s = bb::defaultSettings();
+        auto s = shaper::defaultSettings();
         s.cutDepth = 10; s.balance = 0.0f;
         const auto out = run (s, clicks);
         double eIn = 0, eOut = 0;
@@ -220,7 +220,7 @@ int main (int argc, char** argv)
         std::printf ("      balance 100/0 : gauche %.1f dB, droite %.1f dB\n", hitsDb (out, clicks), right);
         check (hitsDb (out, clicks) < -12.0 && std::abs (right) < 0.5, "balance 100/0 : seule la gauche est traitee");
 
-        s.balance = 0.5f; s.stereoMode = bb::StereoMode::midSide;
+        s.balance = 0.5f; s.stereoMode = shaper::StereoMode::midSide;
         const auto ms = run (s, clicks);
         std::printf ("      mid/side : frappes %.1f dB\n", hitsDb (ms, clicks));
         check (hitsDb (ms, clicks) < -12.0, "mid/side : les frappes au centre sont traitees");
@@ -231,19 +231,19 @@ int main (int argc, char** argv)
 
     // 6. Delta, bypass, trim, écoute d'une bande.
     {
-        auto s = bb::defaultSettings();
+        auto s = shaper::defaultSettings();
         s.cutDepth = 0; s.delta = true;
         const auto d = run (s, in);
         float peak = 0;
         for (size_t i = (size_t) d.latency * 2; i < in.l.size(); ++i) peak = std::max (peak, std::abs (d.l[i]));
         check (peak < 1.0e-3f, "delta, depth 0 : presque rien");
 
-        auto b = bb::defaultSettings();
+        auto b = shaper::defaultSettings();
         b.cutDepth = 10; b.bypass = true;
         const auto by = run (b, in);
         check (reconstructionDb (by, in.l, by.l) > 100.0, "bypass : le son d'origine, latence comprise");
 
-        auto t = bb::defaultSettings();
+        auto t = shaper::defaultSettings();
         t.cutDepth = 0; t.trimDb = -6.0f;
         const auto trimmed = run (t, in);
         double ratio = 0, ref = 0;
@@ -256,7 +256,7 @@ int main (int argc, char** argv)
         std::printf ("      trim -6 dB : %.2f dB\n", trimDb);
         check (std::abs (trimDb + 6.0) < 0.1, "trim : -6 dB sur le signal traite");
 
-        auto l = bb::defaultSettings();
+        auto l = shaper::defaultSettings();
         l.cutDepth = 10; l.listenBand = 2;
         const auto listen = run (l, clicks);
         double e = 0;
@@ -266,10 +266,10 @@ int main (int argc, char** argv)
 
     // 7. Les réglages extrêmes : ni NaN ni explosion.
     {
-        auto s = bb::defaultSettings();
+        auto s = shaper::defaultSettings();
         s.boost = true; s.boostDepth = 10; s.sensitivity = 10; s.sharpness = 10; s.decay = 10; s.decayLfHf = 10;
         s.bands[1].sens = 18; s.bands[2].sens = 18; s.bands[3].sens = 18;
-        s.window = bb::Window::longWindow; s.oversample = 2; s.highResolution = true; s.phase = bb::Phase::minimum;
+        s.window = shaper::Window::longWindow; s.oversample = 2; s.highResolution = true; s.phase = shaper::Phase::minimum;
         const auto out = run (s, in);
         bool finite = true; float peak = 0;
         for (size_t i = 0; i < out.l.size(); ++i)
@@ -279,13 +279,13 @@ int main (int argc, char** argv)
         }
         std::printf ("      reglages extremes : crete %.2f\n", peak);
         check (finite && peak < 8.0f, "reglages extremes : fini et borne");
-        writeWav (dir + "/brumebox_boost.wav", out.l, out.r);
+        writeWav (dir + "/shaper_boost.wav", out.l, out.r);
 
-        auto c = bb::defaultSettings();
+        auto c = shaper::defaultSettings();
         c.cutDepth = 8;
         const auto cut = run (c, in);
-        writeWav (dir + "/brumebox_cut.wav", cut.l, cut.r);
-        writeWav (dir + "/brumebox_sec.wav", in.l, in.r);
+        writeWav (dir + "/shaper_cut.wav", cut.l, cut.r);
+        writeWav (dir + "/shaper_sec.wav", in.l, in.r);
     }
 
     std::printf (failures == 0 ? "\ntout passe\n" : "\n%d echec(s)\n", failures);

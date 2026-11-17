@@ -1,10 +1,10 @@
-// Onirique BrumeBox (repris de ResoBox) — minimal radix-2 FFT (no external dependency)
+// Onirique Shaper (repris de ResoBox) — minimal radix-2 FFT (no external dependency)
 #pragma once
 
 #include <complex>
 #include <vector>
 
-namespace bb
+namespace shaper
 {
 
 /** Iterative in-place radix-2 complex FFT. Size is a power of two. */
@@ -29,4 +29,4 @@ private:
     std::vector<std::complex<float>> twiddles; // forward twiddles, one block per stage
 };
 
-} // namespace bb
+} // namespace shaper

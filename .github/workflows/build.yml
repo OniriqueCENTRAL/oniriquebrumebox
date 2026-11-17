@@ -22,10 +22,10 @@ jobs:
           - name: macOS
             os: macos-latest
             generator: Xcode
-            artefacts: build/OniriqueBrumeBox_artefacts/Release
+            artefacts: build/OniriqueShaper_artefacts/Release
           - name: Windows
             os: windows-latest
-            artefacts: build/OniriqueBrumeBox_artefacts/Release
+            artefacts: build/OniriqueShaper_artefacts/Release
 
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -46,7 +46,7 @@ jobs:
           if [ "${{ matrix.name }}" = "Windows" ]; then
             cmake -B build -A x64 2>&1 | tee configure.log
           else
-            cmake -B build -G "${{ matrix.generator }}" -DBRUMEBOX_COPY_AFTER_BUILD=ON 2>&1 | tee configure.log
+            cmake -B build -G "${{ matrix.generator }}" -DSHAPER_COPY_AFTER_BUILD=ON 2>&1 | tee configure.log
           fi
 
       - name: Build
@@ -64,8 +64,8 @@ jobs:
       - name: Check the macOS binaries are universal
         if: matrix.name == 'macOS'
         run: |
-          lipo -info "${{ matrix.artefacts }}/VST3/BrumeBox.vst3/Contents/MacOS/BrumeBox"
-          lipo -info "${{ matrix.artefacts }}/AU/BrumeBox.component/Contents/MacOS/BrumeBox"
+          lipo -info "${{ matrix.artefacts }}/VST3/OniriqueShaper.vst3/Contents/MacOS/OniriqueShaper"
+          lipo -info "${{ matrix.artefacts }}/AU/OniriqueShaper.component/Contents/MacOS/OniriqueShaper"
 
       # Apple's own validator loads the Audio Unit the way a host does and
       # puts it through its paces. The build has just installed it for this
@@ -86,19 +86,19 @@ jobs:
         if: matrix.name == 'macOS'
         run: |
           mkdir dist
-          ditto -c -k --keepParent "${{ matrix.artefacts }}/VST3/BrumeBox.vst3" dist/BrumeBox-macOS-VST3.zip
-          ditto -c -k --keepParent "${{ matrix.artefacts }}/AU/BrumeBox.component" dist/BrumeBox-macOS-AU.zip
+          ditto -c -k --keepParent "${{ matrix.artefacts }}/VST3/OniriqueShaper.vst3" dist/Shaper-macOS-VST3.zip
+          ditto -c -k --keepParent "${{ matrix.artefacts }}/AU/OniriqueShaper.component" dist/Shaper-macOS-AU.zip
 
       - name: Package (Windows)
         if: matrix.name == 'Windows'
         shell: pwsh
         run: |
           New-Item -ItemType Directory dist | Out-Null
-          Compress-Archive -Path "${{ matrix.artefacts }}/VST3/BrumeBox.vst3" -DestinationPath dist/BrumeBox-Windows-VST3.zip
+          Compress-Archive -Path "${{ matrix.artefacts }}/VST3/OniriqueShaper.vst3" -DestinationPath dist/Shaper-Windows-VST3.zip
 
       - uses: actions/upload-artifact@v4
         with:
-          name: BrumeBox-${{ matrix.name }}
+          name: Shaper-${{ matrix.name }}
           path: dist/*
           if-no-files-found: error
 

@@ -1,21 +1,21 @@
-// Onirique BrumeBox — le plugin
+// Onirique Shaper — le plugin
 #pragma once
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
 #include <map>
 
-#include "dsp/BrumeEngine.h"
+#include "dsp/ShaperEngine.h"
 #include "License/LicenseGuard.h"
 
 namespace onirique
 {
 using namespace juce;
 
-class BrumeBoxProcessor : public AudioProcessor
+class ShaperProcessor : public AudioProcessor
 {
 public:
-    BrumeBoxProcessor();
+    ShaperProcessor();
 
     void prepareToPlay (double sampleRate, int samplesPerBlock) override;
     void releaseResources() override {}
@@ -41,9 +41,9 @@ public:
     void setStateInformation (const void*, int) override;
 
     /** Les réglages tels que les paramètres les donnent (aussi pour l'écran). */
-    bb::Settings readSettings() const;
+    shaper::Settings readSettings() const;
 
-    const bb::BrumeEngine& getEngine() const noexcept { return engine; }
+    const shaper::ShaperEngine& getEngine() const noexcept { return engine; }
 
     /** Les identifiants des paramètres : les mêmes noms que spiff (« band2 freq », « decay lf/hf »...). */
     static String bandId (int band, const char* what) { return "band" + String (band) + " " + what; }
@@ -53,7 +53,7 @@ public:
 
     //==============================================================================
     // Presets : ceux d'usine (Presets.h), et ceux de l'utilisateur, des fichiers .preset dans
-    // Documents/Onirique/BrumeBox/Presets. Un fichier .preset ouvert à la main peut aussi venir
+    // Documents/Onirique/Shaper/Presets. Un fichier .preset ouvert à la main peut aussi venir
     // d'ailleurs : tout fichier XML dont les <PARAM id="..." value="..."/> portent nos identifiants.
     struct Preset
     {
@@ -86,9 +86,9 @@ private:
     /** Chaque paramètre à sa valeur dans `values` (identifiant → valeur réelle), sinon à sa valeur par défaut. */
     void applyValues (const std::map<String, float>& values, const String& presetName);
 
-    bb::BrumeEngine engine;
+    shaper::ShaperEngine engine;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BrumeBoxProcessor)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ShaperProcessor)
 };
 
 } // namespace onirique

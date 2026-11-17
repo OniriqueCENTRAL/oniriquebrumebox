@@ -1,11 +1,13 @@
-// Onirique BrumeBox — l'interface
+// Onirique Shaper — l'interface
 #pragma once
 
+#include "../License/OniriqueThemeButton.h"
 #include "License/LicenseOverlay.h"
 #include "PluginProcessor.h"
-#include "ui/BrumeDisplay.h"
+#include "ui/ShaperDisplay.h"
 #include "ui/Controls.h"
 #include "ui/Theme.h"
+#include "ui/OniriqueDA.h"
 
 namespace onirique
 {
@@ -17,17 +19,17 @@ namespace onirique
     deuxième : la stéréo (mode, link, balance), la sortie (mix, trim) et
     l'avancé (resolution, oversample, window, phase). L'écran : le spectre, la
     réduction, et les cinq bandes de la courbe de sensibilité. */
-class BrumeBoxEditor final : public AudioProcessorEditor,
+class ShaperEditor final : public AudioProcessorEditor,
                              private Timer
 {
 public:
-    explicit BrumeBoxEditor (BrumeBoxProcessor&);
-    ~BrumeBoxEditor() override;
+    explicit ShaperEditor (ShaperProcessor&);
+    ~ShaperEditor() override;
 
     void paint (Graphics&) override;
     void resized() override;
 
-    BrumeDisplay& getDisplay() noexcept { return display; }
+    ShaperDisplay& getDisplay() noexcept { return display; }
 
     /** Le menu des presets transformé en champ où taper le nom du preset à enregistrer (aussi pour les captures). */
     void showSaveField() { beginSaving(); }
@@ -68,14 +70,14 @@ private:
     uint32 restingSince = 0;
     bool pinned = false;
 
-    BrumeBoxProcessor& processor;
-    BrumeDisplay display;
+    ShaperProcessor& processor;
+    ShaperDisplay display;
 
     // L'en-tête : les presets, DELTA, BYPASS.
     TextButton previousButton { "<" }, nextButton { ">" }, saveButton { "SAVE" }, openButton { "OPEN" };
     ComboBox presetBox;
     Label presetNameEditor;
-    std::vector<BrumeBoxProcessor::Preset> presetList;
+    std::vector<ShaperProcessor::Preset> presetList;
     std::unique_ptr<FileChooser> chooser;
     TextButton deltaButton { "DELTA" }, bypassButton { "BYPASS" };
 
@@ -98,12 +100,15 @@ private:
     std::vector<std::unique_ptr<SliderAttachment>> sliderAttachments;
 
     Image logo;
-    double openedAt = Time::getMillisecondCounterHiRes();
 
     // En dernier : détruit en premier, dessiné par-dessus tout.
     std::unique_ptr<license::Overlay> licenseOverlay;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BrumeBoxEditor)
+    onirique::look::ThemeButton themeButton;   // ⋯ : la couleur de l'interface
+    int themeSeen = -1;
+    Image daBackdrop;   // le fond de VOCALBOX, calculé une fois par taille
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (ShaperEditor)
 };
 
 } // namespace onirique

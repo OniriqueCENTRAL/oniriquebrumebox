@@ -3,7 +3,7 @@
 #include <cassert>
 #include <cmath>
 
-namespace bb
+namespace shaper
 {
 
 Fft::Fft (int sizePowerOfTwo)
@@ -78,4 +78,4 @@ void Fft::transform (std::complex<float>* data, bool invert) const noexcept
     }
 }
 
-} // namespace bb
+} // namespace shaper

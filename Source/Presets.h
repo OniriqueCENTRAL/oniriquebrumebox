@@ -1,4 +1,4 @@
-// Onirique BrumeBox — les presets d'usine
+// Onirique Shaper — les presets d'usine
 //
 // Chaque preset ne donne que ce qu'il change : le reste revient à sa valeur par défaut.
 // Les identifiants sont ceux des paramètres (PluginProcessor.cpp).

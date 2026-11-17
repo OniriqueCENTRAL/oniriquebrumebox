@@ -1,4 +1,4 @@
-// Onirique BrumeBox — moteur : processeur de transitoires spectral (sans dépendance)
+// Onirique Shaper — moteur : processeur de transitoires spectral (sans dépendance)
 #pragma once
 
 #include <complex>
@@ -8,7 +8,7 @@
 
 #include "Fft.h"
 
-namespace bb
+namespace shaper
 {
 
 constexpr int kMaxChannels = 2;
@@ -81,7 +81,7 @@ float bandCoverage (const Settings&, int band, float hz) noexcept;
 
 /** Repère, fréquence par fréquence, ce qui monte d'un coup au-dessus de sa propre moyenne
     récente (indépendant du niveau), et le coupe ou le pousse, sans toucher au reste. */
-class BrumeEngine
+class ShaperEngine
 {
 public:
     /** Alloue tout ce que les fenêtres, l'oversample et la résolution peuvent demander. */
@@ -147,4 +147,4 @@ private:
     float transientShare = 0.0f;
 };
 
-} // namespace bb
+} // namespace shaper

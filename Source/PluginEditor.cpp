@@ -1,4 +1,4 @@
-// Onirique BrumeBox — l'interface
+// Onirique Shaper — l'interface
 #include "PluginEditor.h"
 #include "ui/OniriqueWindowSize.h"
 
@@ -17,7 +17,7 @@ namespace
         return laf;
     }
 
-    constexpr int kHeaderHeight = 68;
+    constexpr int kHeaderHeight = 56;
     constexpr int kTitleLeft = 72;
     constexpr int kColumnWidth = 208;
     constexpr int kSecondWidth = 246;
@@ -27,23 +27,6 @@ namespace
     const Colour violet { 0xff9b8cff };
 
     Font titleFont (bool heavy) { return displayFont (23.0f, heavy).withExtraKerningFactor (0.09f); }
-
-    /** L'étoile à quatre branches du sigil. */
-    Path star (Point<float> centre, float radius)
-    {
-        Path p;
-        const auto waist = radius * 0.16f;
-        p.startNewSubPath (centre.x, centre.y - radius);
-        p.lineTo (centre.x + waist, centre.y - waist);
-        p.lineTo (centre.x + radius, centre.y);
-        p.lineTo (centre.x + waist, centre.y + waist);
-        p.lineTo (centre.x, centre.y + radius);
-        p.lineTo (centre.x - waist, centre.y + waist);
-        p.lineTo (centre.x - radius, centre.y);
-        p.lineTo (centre.x - waist, centre.y - waist);
-        p.closeSubPath();
-        return p;
-    }
 
     Image makeLogo()
     {
@@ -71,7 +54,7 @@ namespace
     }
 }
 
-BrumeBoxEditor::BrumeBoxEditor (BrumeBoxProcessor& p)
+ShaperEditor::ShaperEditor (ShaperProcessor& p)
     : AudioProcessorEditor (&p), processor (p), display (p)
 {
     setLookAndFeel (&sharedLookAndFeel());
@@ -161,6 +144,10 @@ BrumeBoxEditor::BrumeBoxEditor (BrumeBoxProcessor& p)
     addChildComponent (presetNameEditor);
     refreshPresets();
 
+    addAndMakeVisible (themeButton);
+    for (auto* b : { &cutButton, &boostButton, &deltaButton, &bypassButton })
+        b->getProperties().set ("star", true);   // l'étoile du badge « ACTIVÉ » au lieu du point
+
     for (const auto& [button, id] : { std::pair { &deltaButton, "delta" }, { &bypassButton, "bypass" } })
     {
         button->setClickingTogglesState (true);
@@ -170,7 +157,7 @@ BrumeBoxEditor::BrumeBoxEditor (BrumeBoxProcessor& p)
 
     describe ({ &previousButton }, fr ("Preset précédent."));
     describe ({ &nextButton }, fr ("Preset suivant."));
-    describe ({ &presetBox }, fr ("Les presets : ceux d'usine par catégorie, puis les vôtres (Documents/Onirique/BrumeBox/Presets, rangés par sous-dossier)."));
+    describe ({ &presetBox }, fr ("Les presets : ceux d'usine par catégorie, puis les vôtres (Documents/Onirique/Shaper/Presets, rangés par sous-dossier)."));
     describe ({ &saveButton }, fr ("Enregistre les réglages comme preset personnel : tapez son nom à la place du preset affiché, puis Entrée. Échap annule."));
     describe ({ &openButton }, fr ("Ouvre un fichier .preset où qu'il soit. Les fichiers .preset de spiff s'ouvrent aussi : les paramètres portent les mêmes noms."));
     describe ({ &deltaButton }, fr ("Delta : la différence entre le son traité et l'original, pour entendre à quoi Shaper réagit. MIX mélange alors l'original et le delta."));
@@ -208,30 +195,37 @@ BrumeBoxEditor::BrumeBoxEditor (BrumeBoxProcessor& p)
     startTimerHz (30);
 }
 
-BrumeBoxEditor::~BrumeBoxEditor()
+ShaperEditor::~ShaperEditor()
 {
     window::rememberOnThisComputer ("ONIRIQUE SHAPER", getWidth(), getHeight());
     setLookAndFeel (nullptr);
 }
 
 //==============================================================================
-void BrumeBoxEditor::timerCallback()
+void ShaperEditor::timerCallback()
 {
     // Le nom du preset chargé, même s'il vient de l'hôte ou d'un fichier.
     if (! presetNameEditor.isVisible() && presetBox.getText() != processor.getPresetName())
         presetBox.setText (processor.getPresetName(), dontSendNotification);
 
-    repaint (getLocalBounds().removeFromTop (kHeaderHeight));
+    // la couleur de l'interface (menu ⋯, ou changée dans une autre fenêtre de Shaper) : tout se redessine
+    if (onirique::look::changedSince (themeSeen))
+    {
+        if (auto* lf = dynamic_cast<theme::OniriqueLookAndFeel*> (&getLookAndFeel())) { lf->applyColours(); sendLookAndFeelChange(); }
+        daBackdrop = {};
+        std::function<void (Component&)> all = [&all] (Component& k) { k.repaint(); for (auto* ch : k.getChildren()) all (*ch); };
+        all (*this);
+    }
     updateHoverTip();
 }
 
-void BrumeBoxEditor::describe (std::initializer_list<Component*> components, const String& text)
+void ShaperEditor::describe (std::initializer_list<Component*> components, const String& text)
 {
     for (auto* c : components)
         described.push_back ({ c, text });
 }
 
-String BrumeBoxEditor::descriptionAt (Point<int> at) const
+String ShaperEditor::descriptionAt (Point<int> at) const
 {
     for (const auto& d : described)
         if (d.component->isVisible() && d.component->getBoundsInParent().contains (at))
@@ -243,7 +237,7 @@ String BrumeBoxEditor::descriptionAt (Point<int> at) const
     return {};
 }
 
-void BrumeBoxEditor::pinDescription (Point<int> at)
+void ShaperEditor::pinDescription (Point<int> at)
 {
     pinned = true;
     hoverTip.text = descriptionAt (at);
@@ -252,7 +246,7 @@ void BrumeBoxEditor::pinDescription (Point<int> at)
     hoverTip.toFront (false);
 }
 
-void BrumeBoxEditor::updateHoverTip()
+void ShaperEditor::updateHoverTip()
 {
     if (pinned)
         return;
@@ -297,7 +291,7 @@ void BrumeBoxEditor::updateHoverTip()
 }
 
 //==============================================================================
-void BrumeBoxEditor::refreshPresets()
+void ShaperEditor::refreshPresets()
 {
     presetList = processor.listPresets();
     presetBox.clear (dontSendNotification);
@@ -316,7 +310,7 @@ void BrumeBoxEditor::refreshPresets()
     presetBox.setText (processor.getPresetName(), dontSendNotification);
 }
 
-void BrumeBoxEditor::stepPreset (int direction)
+void ShaperEditor::stepPreset (int direction)
 {
     if (presetList.empty())
         return;
@@ -333,7 +327,7 @@ void BrumeBoxEditor::stepPreset (int direction)
     presetBox.setText (processor.getPresetName(), dontSendNotification);
 }
 
-void BrumeBoxEditor::beginSaving()
+void ShaperEditor::beginSaving()
 {
     presetNameEditor.setBounds (presetBox.getBounds());
     presetNameEditor.setText (processor.getPresetName(), dontSendNotification);
@@ -344,9 +338,9 @@ void BrumeBoxEditor::beginSaving()
         editor->selectAll();
 }
 
-void BrumeBoxEditor::openPresetFile()
+void ShaperEditor::openPresetFile()
 {
-    chooser = std::make_unique<FileChooser> (fr ("Ouvrir un preset"), BrumeBoxProcessor::userPresetFolder(), "*.preset;*.xml");
+    chooser = std::make_unique<FileChooser> (fr ("Ouvrir un preset"), ShaperProcessor::userPresetFolder(), "*.preset;*.xml");
     chooser->launchAsync (FileBrowserComponent::openMode | FileBrowserComponent::canSelectFiles, [this] (const FileChooser& fc)
     {
         const auto file = fc.getResult();
@@ -358,28 +352,26 @@ void BrumeBoxEditor::openPresetFile()
 }
 
 //==============================================================================
-int BrumeBoxEditor::titleRight() const
+int ShaperEditor::titleRight() const
 {
     return kTitleLeft
            + roundToInt (GlyphArrangement::getStringWidth (titleFont (true), "ONIRIQUE")
-                         + GlyphArrangement::getStringWidth (titleFont (false), "SHAPER"))
+                         + GlyphArrangement::getStringWidth (titleFont (true), "SHAPER"))
            + 12;
 }
 
-void BrumeBoxEditor::paintHeader (Graphics& g, Rectangle<int> header)
+void ShaperEditor::paintHeader (Graphics& g, Rectangle<int> header)
 {
+    // La barre de VOCALBOX : nuit presque noire sur le fond, une lueur braise seulement derrière la marque.
     const auto area = header.toFloat();
-    const auto seconds = (Time::getMillisecondCounterHiRes() - openedAt) * 0.001;
-
-    // Le cramoisi de la gamme, avec un voile violet vers la droite.
-    ColourGradient ground (Colour (0xff2c060b), 0.0f, 0.0f, Colour (0xff24103a), area.getRight(), 0.0f, false);
-    ground.addColour (0.30, Colour (0xff7a0e1c));
-    ground.addColour (0.65, Colour (0xff4a0c2a));
-    g.setGradientFill (ground);
+    g.setColour (Colour (0xff120a0c).withAlpha (0.82f));
     g.fillRect (area);
-
-    g.setGradientFill (ColourGradient (Colours::transparentBlack, 0.0f, area.getY(), Colour (0x73000000), 0.0f, area.getBottom(), false));
-    g.fillRect (area);
+    {
+        const auto cx = (float) kTitleLeft + 60.0f, cy = area.getCentreY();
+        ColourGradient glow (onirique::look::emberBlood.withAlpha (0.45f), cx, cy, onirique::look::emberBlood.withAlpha (0.0f), cx + 300.0f, cy, true);
+        g.setGradientFill (glow);
+        g.fillRect (area.withWidth (cx + 300.0f));
+    }
 
     if (logo.isValid())
     {
@@ -388,51 +380,19 @@ void BrumeBoxEditor::paintHeader (Graphics& g, Rectangle<int> header)
         g.drawImage (logo, { 16.0f - (float) kLogoMargin, area.getCentreY() - height * 0.5f, width, height });
     }
 
+    // ONIRIQUE en blanc, le nom du plugin en braise, comme ONIRIQUE VOCALBOX.
     const auto nameWidth = GlyphArrangement::getStringWidth (titleFont (true), "ONIRIQUE");
     g.setColour (Colours::white);
     g.setFont (titleFont (true));
     g.drawText ("ONIRIQUE", area.withTrimmedLeft ((float) kTitleLeft).withWidth (nameWidth + 4.0f), Justification::centredLeft, false);
-    g.setColour (Colour (0xffd9c8ff));
-    g.setFont (titleFont (false));
+    g.setColour (ember);
     g.drawText ("SHAPER", area.withTrimmedLeft ((float) kTitleLeft + nameWidth + 10.0f).withWidth (260.0f), Justification::centredLeft, false);
 
-    // Des étoiles à côté, chacune respirant à son rythme.
-    struct Spark { float x, y, radius, rate, offset; };
-    static const Spark sparks[] = { { 10.0f, 17.0f, 5.5f, 0.9f, 0.0f }, { 27.0f, 11.0f, 3.0f, 1.3f, 1.7f },
-                                    { 38.0f, 24.0f, 4.0f, 0.7f, 3.1f }, { 18.0f, 42.0f, 4.5f, 1.1f, 4.4f },
-                                    { 34.0f, 48.0f, 2.5f, 1.6f, 2.3f }, { 46.0f, 38.0f, 2.0f, 1.0f, 5.2f } };
-    const auto sparkLeft = (float) titleRight();
-    for (const auto& s : sparks)
-    {
-        const auto glow = 0.5f + 0.5f * (float) std::sin (seconds * s.rate * 2.0 + s.offset);
-        g.setColour (Colours::white.withAlpha (0.25f + 0.65f * glow));
-        g.fillPath (star ({ sparkLeft + s.x, area.getY() + s.y }, s.radius * (0.8f + 0.2f * glow)));
-    }
-
-    // Le pied de l'en-tête : un filet, et une traînée de lumière qui le parcourt.
-    const auto footY = area.getBottom() - 2.0f;
-    g.setColour (Colour (0x30ffd2d6));
-    g.fillRect (0.0f, footY, area.getWidth(), 1.0f);
-
-    const auto length = jmax (160.0f, area.getWidth() * 0.22f);
-    const auto cycle = 3.6;
-    const auto travelled = (float) (std::fmod (seconds, cycle) / cycle);
-    const auto head = -40.0f + travelled * (area.getWidth() + length + 80.0f);
-    const auto tail = head - length;
-
-    ColourGradient halo (Colours::transparentBlack, tail, 0.0f, Colours::transparentBlack, head + 14.0f, 0.0f, false);
-    halo.addColour (0.82, violet.withAlpha (0.5f));
-    g.setGradientFill (halo);
-    g.fillRect (tail, footY - 3.0f, length + 14.0f, 7.0f);
-
-    ColourGradient streak (Colours::transparentWhite, tail, 0.0f, Colours::transparentWhite, head + 6.0f, 0.0f, false);
-    streak.addColour (0.55, emberLit.withAlpha (0.9f));
-    streak.addColour (0.93, Colours::white);
-    g.setGradientFill (streak);
-    g.fillRoundedRectangle (tail, footY - 0.5f, length + 6.0f, 2.0f, 1.0f);
+    g.setColour (line);
+    g.fillRect (0.0f, area.getBottom() - 1.0f, area.getWidth(), 1.0f);
 }
 
-void BrumeBoxEditor::paintSection (Graphics& g, const String& title, int y, int left, int right)
+void ShaperEditor::paintSection (Graphics& g, const String& title, int y, int left, int right)
 {
     g.setColour (theme::haze);
     g.setFont (capsFont (9.5f));
@@ -442,9 +402,11 @@ void BrumeBoxEditor::paintSection (Graphics& g, const String& title, int y, int 
     g.fillRect ((float) (left + width), (float) y, (float) (right - left - width), 1.0f);
 }
 
-void BrumeBoxEditor::paint (Graphics& g)
+void ShaperEditor::paint (Graphics& g)
 {
-    g.fillAll (night);
+    if (daBackdrop.getWidth() != getWidth() || daBackdrop.getHeight() != getHeight())
+        daBackdrop = onirique::da::backdrop (getWidth(), getHeight(), (float) getWidth() / 1100.0f);
+    g.drawImageAt (daBackdrop, 0, 0);
     paintHeader (g, getLocalBounds().removeFromTop (kHeaderHeight));
 
     auto body = getLocalBounds().withTop (kHeaderHeight);
@@ -469,12 +431,14 @@ void BrumeBoxEditor::paint (Graphics& g)
         g.drawText (name, box->getX() + 4, box->getY() - 13, box->getWidth(), 12, Justification::centredLeft, false);
 }
 
-void BrumeBoxEditor::resized()
+void ShaperEditor::resized()
 {
     auto bounds = getLocalBounds();
     auto header = bounds.removeFromTop (kHeaderHeight);
 
     auto row = header.withTrimmedBottom (6).withSizeKeepingCentre (header.getWidth(), 30).withTrimmedRight (14);
+    themeButton.setBounds (row.removeFromRight (38));
+    row.removeFromRight (8);
     bypassButton.setBounds (row.removeFromRight (100));
     row.removeFromRight (8);
     deltaButton.setBounds (row.removeFromRight (90));

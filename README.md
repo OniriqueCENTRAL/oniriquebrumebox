@@ -1,4 +1,4 @@
-# Onirique BrumeBox (prototype)
+# Onirique Shaper (prototype)
 
 Processeur de transitoires spectral : il ne coupe ou ne pousse que les fréquences qui composent
 les transitoires, et laisse le reste intact. Chaque bin est comparé à sa propre moyenne récente,
@@ -18,7 +18,7 @@ ligne ; la FFT est celle de ResoBox.
 | Plugin VST3 / AU, paramètres automatisables | compile sur Mac (universel arm64 + x86_64) |
 | Licence ONIRIQUE (`brumebox`) | branchée ; fiche CENTRAL « fondateurs seulement », démo et image en ligne |
 | Presets | 28 d'usine, personnels, ouverture de fichiers |
-| Interface | faite (`snapshot.png`), vérifiée sur capture (`brumebox_snapshot`) |
+| Interface | faite (`snapshot.png`), vérifiée sur capture (`shaper_snapshot`) |
 | Version Windows | compile (Visual Studio 2022, x64) ; 1.0.2 publiée sur CENTRAL |
 | Écoute dans un DAW | **pas encore faite** |
 
@@ -29,17 +29,17 @@ changement.
 ## Construire
 
 ```bash
-cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBRUMEBOX_JUCE_DIR=../ResoBox/JUCE
+cmake -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSHAPER_JUCE_DIR=../ResoBox/JUCE
 cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-Le test écrit `build/brumebox_sec.wav`, `brumebox_cut.wav` et `brumebox_boost.wav` pour écouter
+Le test écrit `build/shaper_sec.wav`, `shaper_cut.wav` et `shaper_boost.wav` pour écouter
 l'effet sans DAW.
 
 ## Interface
 
-![BrumeBox](snapshot.png)
+![Shaper](snapshot.png)
 
 - **En-tête** : la pastille de licence, DELTA, BYPASS.
 - **Première colonne** : CUT / BOOST, DEPTH (celui du mode choisi), puis SENSITIVITY, DECAY,
@@ -54,22 +54,22 @@ l'effet sans DAW.
 
 Laisser le curseur deux secondes sur un contrôle affiche sa description, en français.
 
-Capture sans hôte : `cmake --build build --target brumebox_snapshot`, puis
-`build/brumebox_snapshot snapshot.png [largeur hauteur] [--boost] [--closed] [--scale 2] [--tip x y]`.
-`build/brumebox_snapshot --selftest` vérifie les presets (identifiants, enregistrer puis rouvrir, fichier spiff).
+Capture sans hôte : `cmake --build build --target shaper_snapshot`, puis
+`build/shaper_snapshot snapshot.png [largeur hauteur] [--boost] [--closed] [--scale 2] [--tip x y]`.
+`build/shaper_snapshot --selftest` vérifie les presets (identifiants, enregistrer puis rouvrir, fichier spiff).
 
 ## Presets
 
 28 presets d'usine ONIRIQUE (`Source/Presets.h`), par catégorie : divers, batterie, voix, basse, guitare,
 synthés et claviers, image, master. Les presets personnels sont des fichiers `.preset` dans
-`Documents/Onirique/BrumeBox/Presets` (rangés par sous-dossier). OPEN ouvre tout fichier XML aux
+`Documents/Onirique/Shaper/Presets` (rangés par sous-dossier). OPEN ouvre tout fichier XML aux
 `<PARAM id="..." value="..."/>` portant nos identifiants, donc aussi un `.preset` de spiff.
 
 ## Visuels pour CENTRAL
 
-- `visuels/fiche-brumebox.png` (et `-boost`) : l'image de la fiche, l'interface au travail, en 2x.
-  `build/brumebox_snapshot visuels/fiche-brumebox.png 1300 740 --closed --scale 2`
-- La démo interactive : `cmake --build build --target brumebox_demo`, puis `build/brumebox_demo visuels/demo`
+- `visuels/fiche-shaper.png` (et `-boost`) : l'image de la fiche, l'interface au travail, en 2x.
+  `build/shaper_snapshot visuels/fiche-shaper.png 1300 740 --closed --scale 2`
+- La démo interactive : `cmake --build build --target shaper_demo`, puis `build/shaper_demo visuels/demo`
   (base.png + demo.json, format onirique-demo-v1 : le travail d'onirique-probe, fait sur Mac). À rattacher
   par `deploy/attach-demo.mjs` du dépôt ONIRIQUE CENTRAL.
 

@@ -1,5 +1,6 @@
-// Onirique BrumeBox (repris de ResoBox) — shared look, matching the Onirique identity
+// Onirique Shaper — shared look, matching the Onirique identity
 #pragma once
+#include "../../License/OniriqueTheme.h"
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
@@ -11,11 +12,11 @@ using juce::Colour;
 // The palette the rest of the Onirique range uses: a near-black ground, a
 // blood-dark panel, and a single ember accent that carries every active state.
 inline const Colour night   { 0xff0d0809 };
-inline const Colour deep    { 0xff1a080a };
-inline const Colour deep2   { 0xff2a0a0e };
-inline const Colour blood   { 0xff5c0008 };
-inline const Colour ember   { 0xffe23444 };
-inline const Colour emberLit{ 0xffff5a68 };
+inline const Colour& deep    = onirique::look::deepTint;     // teintés par la couleur de l'interface
+inline const Colour& deep2   = onirique::look::deepTint2;
+inline const Colour& blood   = onirique::look::emberDeep;
+inline const Colour& ember   = onirique::look::emberBar;
+inline const Colour& emberLit = onirique::look::emberLit;
 inline const Colour mist    { 0xfff6eeee };
 inline const Colour bone    { 0xffffecee };
 inline const Colour haze    { 0xffa88f92 };
@@ -56,6 +57,7 @@ class OniriqueLookAndFeel final : public juce::LookAndFeel_V4
 {
 public:
     OniriqueLookAndFeel();
+    void applyColours();   // rappelée quand la couleur de l'interface change
 
     void drawRotarySlider (juce::Graphics&, int x, int y, int width, int height,
                            float sliderPos, float rotaryStartAngle, float rotaryEndAngle,
@@ -86,14 +88,14 @@ public:
     int getPopupMenuBorderSizeWithOptions (const juce::PopupMenu::Options&) override;
     int getMenuWindowFlags() override;
 
-    /** A label carrying the "pill" property is drawn as the value readout that
-        sits under every knob of the range: a dark capsule with its LED. */
-    void drawLabel (juce::Graphics&, juce::Label&) override;
-
-    // The short description that appears when the pointer rests on a control.
+    // The description of a control, shown once the pointer has rested on it.
     juce::Rectangle<int> getTooltipBounds (const juce::String& text, juce::Point<int> screenPos,
                                            juce::Rectangle<int> parentArea) override;
     void drawTooltip (juce::Graphics&, const juce::String& text, int width, int height) override;
+
+    /** A label carrying the "pill" property is drawn as the value readout that
+        sits under every knob of the range: a dark capsule with its LED. */
+    void drawLabel (juce::Graphics&, juce::Label&) override;
 };
 
 } // namespace onirique::theme

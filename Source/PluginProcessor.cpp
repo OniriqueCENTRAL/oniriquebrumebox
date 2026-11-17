@@ -1,4 +1,4 @@
-// Onirique BrumeBox — le plugin
+// Onirique Shaper — le plugin
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
 #include "Presets.h"
@@ -66,18 +66,18 @@ namespace
 
     const StringArray kSlopes { "6 dB/oct", "12 dB/oct", "24 dB/oct", "48 dB/oct" };
     const StringArray kModes { "Low shelf", "Parametric", "High shelf", "Tilt shelf" };
-    constexpr float kDefaultFreq[bb::kNumBands] = { 20.0f, 100.0f, 1000.0f, 10000.0f, 20000.0f };
+    constexpr float kDefaultFreq[shaper::kNumBands] = { 20.0f, 100.0f, 1000.0f, 10000.0f, 20000.0f };
 }
 
-BrumeBoxProcessor::BrumeBoxProcessor()
+ShaperProcessor::ShaperProcessor()
     : AudioProcessor (BusesProperties()
                           .withInput ("Input", AudioChannelSet::stereo(), true)
                           .withOutput ("Output", AudioChannelSet::stereo(), true)),
-      state (*this, nullptr, "BrumeBox", createLayout())
+      state (*this, nullptr, "Shaper", createLayout())
 {
 }
 
-AudioProcessorValueTreeState::ParameterLayout BrumeBoxProcessor::createLayout()
+AudioProcessorValueTreeState::ParameterLayout ShaperProcessor::createLayout()
 {
     AudioProcessorValueTreeState::ParameterLayout l;
 
@@ -90,9 +90,9 @@ AudioProcessorValueTreeState::ParameterLayout BrumeBoxProcessor::createLayout()
     l.add (tenth ("decay", "Decay", 5.0f));
     l.add (tenth ("decay lf/hf", "Decay LF/HF", 5.0f));
 
-    for (int b = 0; b < bb::kNumBands; ++b)
+    for (int b = 0; b < shaper::kNumBands; ++b)
     {
-        const bool cut = b == 0 || b == bb::kNumBands - 1;
+        const bool cut = b == 0 || b == shaper::kNumBands - 1;
         const auto name = cut ? String (b == 0 ? "Low cut" : "High cut") : "Band " + String (b);
 
         l.add (toggle (bandId (b, "on"), name + " on", ! cut));
@@ -126,9 +126,9 @@ AudioProcessorValueTreeState::ParameterLayout BrumeBoxProcessor::createLayout()
     return l;
 }
 
-bb::Settings BrumeBoxProcessor::readSettings() const
+shaper::Settings ShaperProcessor::readSettings() const
 {
-    auto s = bb::defaultSettings();
+    auto s = shaper::defaultSettings();
     s.boost = get (state, "gain mode") > 0.5f;
     s.cutDepth = get (state, "cut depth");
     s.boostDepth = get (state, "boost depth");
@@ -137,10 +137,10 @@ bb::Settings BrumeBoxProcessor::readSettings() const
     s.decay = get (state, "decay");
     s.decayLfHf = get (state, "decay lf/hf");
 
-    for (int b = 0; b < bb::kNumBands; ++b)
+    for (int b = 0; b < shaper::kNumBands; ++b)
     {
         auto& band = s.bands[b];
-        const bool cut = b == 0 || b == bb::kNumBands - 1;
+        const bool cut = b == 0 || b == shaper::kNumBands - 1;
         band.on = get (state, bandId (b, "on")) > 0.5f;
         band.freq = get (state, bandId (b, "freq"));
         band.mode = (int) get (state, bandId (b, "mode"));
@@ -151,13 +151,13 @@ bb::Settings BrumeBoxProcessor::readSettings() const
         }
     }
 
-    s.stereoMode = get (state, "stereo mode") > 0.5f ? bb::StereoMode::midSide : bb::StereoMode::leftRight;
+    s.stereoMode = get (state, "stereo mode") > 0.5f ? shaper::StereoMode::midSide : shaper::StereoMode::leftRight;
     s.stereoLink = get (state, "stereo link");
     s.balance = get (state, "stereo balance");
     s.highResolution = get (state, "resolution") > 0.5f;
     s.oversample = (int) get (state, "oversample");
-    s.window = (bb::Window) (int) get (state, "window length");
-    s.phase = get (state, "phase mode") > 0.5f ? bb::Phase::minimum : bb::Phase::linear;
+    s.window = (shaper::Window) (int) get (state, "window length");
+    s.phase = get (state, "phase mode") > 0.5f ? shaper::Phase::minimum : shaper::Phase::linear;
     s.mix = get (state, "mix");
     s.trimDb = get (state, "trim");
     s.delta = get (state, "delta") > 0.5f;
@@ -166,7 +166,7 @@ bb::Settings BrumeBoxProcessor::readSettings() const
     return s;
 }
 
-bool BrumeBoxProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
+bool ShaperProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const
 {
     const auto out = layouts.getMainOutputChannelSet();
     if (out != AudioChannelSet::mono() && out != AudioChannelSet::stereo())
@@ -174,7 +174,7 @@ bool BrumeBoxProcessor::isBusesLayoutSupported (const BusesLayout& layouts) cons
     return layouts.getMainInputChannelSet() == out;
 }
 
-void BrumeBoxProcessor::prepareToPlay (double sampleRate, int)
+void ShaperProcessor::prepareToPlay (double sampleRate, int)
 {
     license.refresh();
     engine.setSettings (readSettings());
@@ -182,7 +182,7 @@ void BrumeBoxProcessor::prepareToPlay (double sampleRate, int)
     setLatencySamples (engine.latency());
 }
 
-void BrumeBoxProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer&)
+void ShaperProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer&)
 {
     ScopedNoDenormals noDenormals;
 
@@ -199,18 +199,24 @@ void BrumeBoxProcessor::processBlock (AudioBuffer<float>& buffer, MidiBuffer&)
     license.process (buffer, getSampleRate(), isNonRealtime());   // en dernier, sur toutes les sorties
 }
 
-AudioProcessorEditor* BrumeBoxProcessor::createEditor()
+AudioProcessorEditor* ShaperProcessor::createEditor()
 {
-    return new BrumeBoxEditor (*this);
+    return new ShaperEditor (*this);
 }
 
 //==============================================================================
-File BrumeBoxProcessor::userPresetFolder()
+File ShaperProcessor::userPresetFolder()
 {
-    return File::getSpecialLocation (File::userDocumentsDirectory).getChildFile ("Onirique/BrumeBox/Presets");
+    const auto onirique = File::getSpecialLocation (File::userDocumentsDirectory).getChildFile ("Onirique");
+    const auto folder = onirique.getChildFile ("Shaper/Presets");
+    // Les presets enregistrés du temps de BrumeBox suivent le nouveau nom.
+    const auto before = onirique.getChildFile ("BrumeBox/Presets");
+    if (before.isDirectory() && ! folder.exists() && folder.getParentDirectory().createDirectory())
+        before.moveFileTo (folder);
+    return folder;
 }
 
-std::vector<BrumeBoxProcessor::Preset> BrumeBoxProcessor::listPresets() const
+std::vector<ShaperProcessor::Preset> ShaperProcessor::listPresets() const
 {
     std::vector<Preset> list;
     int index = 0;
@@ -230,7 +236,7 @@ std::vector<BrumeBoxProcessor::Preset> BrumeBoxProcessor::listPresets() const
     return list;
 }
 
-void BrumeBoxProcessor::applyValues (const std::map<String, float>& values, const String& presetName)
+void ShaperProcessor::applyValues (const std::map<String, float>& values, const String& presetName)
 {
     for (auto* p : getParameters())
     {
@@ -249,7 +255,7 @@ void BrumeBoxProcessor::applyValues (const std::map<String, float>& values, cons
     state.state.setProperty ("presetName", presetName, nullptr);
 }
 
-void BrumeBoxProcessor::loadFactoryPreset (int index)
+void ShaperProcessor::loadFactoryPreset (int index)
 {
     if (! isPositiveAndBelow (index, (int) std::size (presets::factory)))
         return;
@@ -261,7 +267,7 @@ void BrumeBoxProcessor::loadFactoryPreset (int index)
     applyValues (values, String::fromUTF8 (presets::factory[index].name));
 }
 
-bool BrumeBoxProcessor::loadPresetFile (const File& file)
+bool ShaperProcessor::loadPresetFile (const File& file)
 {
     const auto xml = parseXML (file);
     if (xml == nullptr)
@@ -278,7 +284,7 @@ bool BrumeBoxProcessor::loadPresetFile (const File& file)
     return true;
 }
 
-void BrumeBoxProcessor::loadPreset (const Preset& preset)
+void ShaperProcessor::loadPreset (const Preset& preset)
 {
     if (preset.factoryIndex >= 0)
         loadFactoryPreset (preset.factoryIndex);
@@ -286,13 +292,13 @@ void BrumeBoxProcessor::loadPreset (const Preset& preset)
         loadPresetFile (preset.file);
 }
 
-File BrumeBoxProcessor::saveUserPreset (const String& name)
+File ShaperProcessor::saveUserPreset (const String& name)
 {
     const auto clean = File::createLegalFileName (name.trim());
     if (clean.isEmpty())
         return {};
 
-    XmlElement xml ("BRUMEBOXSTATE");
+    XmlElement xml ("SHAPERSTATE");
     xml.setAttribute ("presetName", name.trim());
     for (auto* p : getParameters())
         if (auto* ranged = dynamic_cast<RangedAudioParameter*> (p))
@@ -310,22 +316,25 @@ File BrumeBoxProcessor::saveUserPreset (const String& name)
     return file;
 }
 
-void BrumeBoxProcessor::getStateInformation (MemoryBlock& dest)
+void ShaperProcessor::getStateInformation (MemoryBlock& dest)
 {
     if (auto xml = state.copyState().createXml())
         copyXmlToBinary (*xml, dest);
 }
 
-void BrumeBoxProcessor::setStateInformation (const void* data, int size)
+void ShaperProcessor::setStateInformation (const void* data, int size)
 {
     if (auto xml = getXmlFromBinary (data, size))
-        if (xml->hasTagName (state.state.getType()))
+        if (xml->hasTagName (state.state.getType()) || xml->hasTagName ("BrumeBox"))   // BrumeBox : les projets d'avant le nom Shaper
+        {
+            xml->setTagName (state.state.getType().toString());
             state.replaceState (ValueTree::fromXml (*xml));
+        }
 }
 
 } // namespace onirique
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
-    return new onirique::BrumeBoxProcessor();
+    return new onirique::ShaperProcessor();
 }
