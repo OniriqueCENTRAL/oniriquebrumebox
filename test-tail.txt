@@ -1,0 +1,7 @@
+Test project /Users/runner/work/oniriqueshaper/oniriqueshaper/build
+    Start 1: engine
+1/1 Test #1: engine ...........................   Passed   17.09 sec
+
+100% tests passed out of 1
+
+Total Test time (real) =  17.11 sec
