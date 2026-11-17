@@ -14,11 +14,11 @@ namespace onirique
 
 /** Les paramètres de spiff, ni plus ni moins, avec l'allure ONIRIQUE.
 
-    L'en-tête : la licence, DELTA, BYPASS. La première colonne : CUT ou BOOST,
-    DEPTH, puis la détection (SENSITIVITY, DECAY, SHARPNESS, DECAY LF/HF). La
-    deuxième : la stéréo (mode, link, balance), la sortie (mix, trim) et
-    l'avancé (resolution, oversample, window, phase). L'écran : le spectre, la
-    réduction, et les cinq bandes de la courbe de sensibilité. */
+    L'en-tête : les presets, la licence, DELTA, BYPASS. Une seule colonne : CUT ou BOOST,
+    DEPTH, puis SENSITIVITY, DECAY, SHARPNESS et MIX. L'écran : le spectre, la
+    réduction, et les cinq bandes de la courbe de sensibilité. Les autres paramètres
+    (stéréo, trim, decay LF/HF, avancé) restent dans les presets et l'automation,
+    sans bouton. */
 class ShaperEditor final : public AudioProcessorEditor,
                              private Timer
 {
@@ -39,7 +39,6 @@ public:
 
 private:
     using ButtonAttachment = AudioProcessorValueTreeState::ButtonAttachment;
-    using ComboBoxAttachment = AudioProcessorValueTreeState::ComboBoxAttachment;
     using SliderAttachment = AudioProcessorValueTreeState::SliderAttachment;
 
     void timerCallback() override;
@@ -74,29 +73,22 @@ private:
     ShaperDisplay display;
 
     // L'en-tête : les presets, DELTA, BYPASS.
-    TextButton previousButton { "<" }, nextButton { ">" }, saveButton { "SAVE" }, openButton { "OPEN" };
+    TextButton previousButton { "<" }, nextButton { ">" }, saveButton { "SAVE" };
     ComboBox presetBox;
     Label presetNameEditor;
     std::vector<ShaperProcessor::Preset> presetList;
-    std::unique_ptr<FileChooser> chooser;
     TextButton deltaButton { "DELTA" }, bypassButton { "BYPASS" };
 
     void refreshPresets();
     void stepPreset (int direction);
     void beginSaving();
-    void openPresetFile();
 
     // Première colonne : cut ou boost, et la détection.
     TextButton cutButton { "CUT" }, boostButton { "BOOST" };
     std::unique_ptr<ParameterAttachment> modeAttachment;
-    Knob depth { "DEPTH" }, sensitivity { "SENSITIVITY" }, decay { "DECAY" }, sharpness { "SHARPNESS" }, decayLfHf { "DECAY LF/HF" };
-
-    // Deuxième colonne : stéréo, sortie, avancé.
-    ComboBox stereoModeBox, resolutionBox, oversampleBox, windowBox, phaseBox;
-    Knob link { "STEREO LINK" }, balance { "BALANCE" }, mix { "MIX" }, trim { "TRIM" };
+    Knob depth { "DEPTH" }, sensitivity { "SENSITIVITY" }, decay { "DECAY" }, sharpness { "SHARPNESS" }, mix { "MIX" };
 
     std::vector<std::unique_ptr<ButtonAttachment>> buttonAttachments;
-    std::vector<std::unique_ptr<ComboBoxAttachment>> comboAttachments;
     std::vector<std::unique_ptr<SliderAttachment>> sliderAttachments;
 
     Image logo;

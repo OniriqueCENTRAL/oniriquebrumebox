@@ -586,14 +586,7 @@ void ShaperDisplay::paintReadouts (Graphics& g, Rectangle<float> plot)
         g.drawText (text, r.withTrimmedLeft (22.0f).withTrimmedRight (8.0f), Justification::centred, false);
     };
 
-    // En haut à gauche : la configuration avancée ; à droite : la plus forte réduction du moment.
-    static const char* windows[] = { "SHORT", "MEDIUM", "LONG" };
-    static const char* oversamples[] = { "1X", "2X", "4X" };
-    pill ({ plot.getX() + 10.0f, plot.getY() + 8.0f, 230.0f, 24.0f },
-          String (windows[(int) settings.window]) + " · " + oversamples[jlimit (0, 2, settings.oversample)] + " · "
-              + (settings.highResolution ? "HIGH RES" : "NORMAL") + " · " + (settings.phase == shaper::Phase::minimum ? "MIN" : "LIN"),
-          haze);
-
+    // En haut à droite : la plus forte réduction du moment.
     pill ({ plot.getRight() - 150.0f, plot.getY() + 8.0f, 140.0f, 24.0f },
           String (settings.boost ? "BOOST " : "CUT ") + (deepest > 0.05f ? "+" : "") + String (deepest, 1) + " dB",
           settings.boost ? violet : ember);

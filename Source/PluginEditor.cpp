@@ -19,8 +19,7 @@ namespace
 
     constexpr int kHeaderHeight = 56;
     constexpr int kTitleLeft = 72;
-    constexpr int kColumnWidth = 208;
-    constexpr int kSecondWidth = 246;
+    constexpr int kColumnWidth = 236;
     constexpr int kLogoWidth = 44;
     constexpr int kLogoMargin = 8;
 
@@ -83,8 +82,7 @@ ShaperEditor::ShaperEditor (ShaperProcessor& p)
     modeAttachment->sendInitialUpdate();
 
     const std::pair<Knob*, const char*> knobs[] = {
-        { &sensitivity, "sensitivity" }, { &decay, "decay" }, { &sharpness, "sharpness" }, { &decayLfHf, "decay lf/hf" },
-        { &link, "stereo link" }, { &balance, "stereo balance" }, { &mix, "mix" }, { &trim, "trim" },
+        { &sensitivity, "sensitivity" }, { &decay, "decay" }, { &sharpness, "sharpness" }, { &mix, "mix" },
     };
 
     for (const auto& [knob, id] : knobs)
@@ -93,26 +91,8 @@ ShaperEditor::ShaperEditor (ShaperProcessor& p)
         addAndMakeVisible (*knob);
     }
 
-    for (auto* k : { &decayLfHf, &balance, &trim })
-        k->slider.getProperties().set ("bipolar", true);
-
-    auto choice = [this, &state] (ComboBox& box, const String& id, const String& heading)
-    {
-        box.addSectionHeading (heading);
-        if (auto* parameter = dynamic_cast<AudioParameterChoice*> (state.getParameter (id)))
-            for (int i = 0; i < parameter->choices.size(); ++i)
-                box.addItem (parameter->choices[i].toUpperCase(), i + 1);
-        comboAttachments.push_back (std::make_unique<ComboBoxAttachment> (state, id, box));
-        addAndMakeVisible (box);
-    };
-    choice (stereoModeBox, "stereo mode", "STEREO MODE");
-    choice (resolutionBox, "resolution", "RESOLUTION");
-    choice (oversampleBox, "oversample", "OVERSAMPLE");
-    choice (windowBox, "window length", "WINDOW");
-    choice (phaseBox, "phase mode", "PHASE");
-
     // Les presets.
-    for (auto* b : { &previousButton, &nextButton, &saveButton, &openButton })
+    for (auto* b : { &previousButton, &nextButton, &saveButton })
     {
         b->getProperties().set ("plain", true);
         addAndMakeVisible (*b);
@@ -120,7 +100,6 @@ ShaperEditor::ShaperEditor (ShaperProcessor& p)
     previousButton.onClick = [this] { stepPreset (-1); };
     nextButton.onClick = [this] { stepPreset (1); };
     saveButton.onClick = [this] { beginSaving(); };
-    openButton.onClick = [this] { openPresetFile(); };
 
     presetBox.onChange = [this]
     {
@@ -159,7 +138,6 @@ ShaperEditor::ShaperEditor (ShaperProcessor& p)
     describe ({ &nextButton }, fr ("Preset suivant."));
     describe ({ &presetBox }, fr ("Les presets : ceux d'usine par catégorie, puis les vôtres (Documents/Onirique/Shaper/Presets, rangés par sous-dossier)."));
     describe ({ &saveButton }, fr ("Enregistre les réglages comme preset personnel : tapez son nom à la place du preset affiché, puis Entrée. Échap annule."));
-    describe ({ &openButton }, fr ("Ouvre un fichier .preset où qu'il soit. Les fichiers .preset de spiff s'ouvrent aussi : les paramètres portent les mêmes noms."));
     describe ({ &deltaButton }, fr ("Delta : la différence entre le son traité et l'original, pour entendre à quoi Shaper réagit. MIX mélange alors l'original et le delta."));
     describe ({ &bypassButton }, fr ("Bypass doux, pour comparer sans à-coup. Le calcul continue : pour l'économiser, désactivez le plugin dans l'hôte."));
     describe ({ &cutButton }, fr ("Cut : baisse les transitoires, seulement aux fréquences qui les composent."));
@@ -168,17 +146,7 @@ ShaperEditor::ShaperEditor (ShaperProcessor& p)
     describe ({ &sensitivity }, fr ("Sensitivity : plus haut, plus de transitoires détectées ; plus bas, seulement les plus fortes. Pour l'entendre : DELTA, beaucoup de DEPTH, puis ce réglage."));
     describe ({ &decay }, fr ("Decay : le temps qu'une coupe ou un boost met à revenir. À 0, seul le tout début de la transitoire est touché ; au-dessus, la queue aussi. Sous 5 : le plus naturel."));
     describe ({ &sharpness }, fr ("Sharpness : la largeur (le q) de chaque coupe ou boost. Bas : plus naturel sur les percussions ; haut : pour les sons harmoniques et larges, comme le piano."));
-    describe ({ &decayLfHf }, fr ("Decay LF/HF : sous 5, les graves reviennent plus lentement que les aigus ; au-dessus, l'inverse ; à 5, pareil partout."));
-    describe ({ &stereoModeBox }, fr ("Stereo mode : traiter la gauche et la droite, ou le mid et le side."));
-    describe ({ &link }, fr ("Stereo link : à 100 %, la détection se fait sur les deux canaux ensemble et la même réduction s'applique aux deux ; à 0 %, deux instances mono."));
-    describe ({ &balance }, fr ("Balance : la part de traitement de chaque canal. 100/100 : les deux ; 100/0 : seulement la gauche (ou le mid) ; 0/100 : seulement la droite (ou le side)."));
     describe ({ &mix }, fr ("Mix : le son d'origine mélangé au son traité. À 100 %, seulement le traité."));
-    describe ({ &trim }, fr ("Trim : le gain du son traité, pour revenir au niveau de l'original."));
-    describe ({ &resolutionBox }, fr ("Resolution : la précision dans le temps. High détecte plus exactement le moment de la transitoire. Gourmand."));
-    describe ({ &oversampleBox }, fr ("Oversample : la réduction calculée plus finement en fréquence, surtout dans les graves. Gourmand."));
-    describe ({ &windowBox }, fr ("Window : le compromis temps / fréquence. Short : presque pas de résonance, idéal pour les clics, moins bon dans le grave. Long : plus doux, pour les sources riches. Medium : entre les deux."));
-    describe ({ &phaseBox }, fr ("Phase : Linear, plus précis pour les coupes chirurgicales, peut pré-sonner dans le grave ; Minimum, sans pré-écho, souvent plus naturel pour les boosts."));
-
     hoverTip.setInterceptsMouseClicks (false, false);
     hoverTip.setAlwaysOnTop (true);
     addChildComponent (hoverTip);
@@ -338,19 +306,6 @@ void ShaperEditor::beginSaving()
         editor->selectAll();
 }
 
-void ShaperEditor::openPresetFile()
-{
-    chooser = std::make_unique<FileChooser> (fr ("Ouvrir un preset"), ShaperProcessor::userPresetFolder(), "*.preset;*.xml");
-    chooser->launchAsync (FileBrowserComponent::openMode | FileBrowserComponent::canSelectFiles, [this] (const FileChooser& fc)
-    {
-        const auto file = fc.getResult();
-        if (file.existsAsFile() && ! processor.loadPresetFile (file))
-            AlertWindow::showMessageBoxAsync (MessageBoxIconType::WarningIcon, "SHAPER",
-                                              fr ("Ce fichier ne contient pas de réglages lisibles."));
-        presetBox.setText (processor.getPresetName(), dontSendNotification);
-    });
-}
-
 //==============================================================================
 int ShaperEditor::titleRight() const
 {
@@ -409,26 +364,13 @@ void ShaperEditor::paint (Graphics& g)
     g.drawImageAt (daBackdrop, 0, 0);
     paintHeader (g, getLocalBounds().removeFromTop (kHeaderHeight));
 
-    auto body = getLocalBounds().withTop (kHeaderHeight);
-    const auto first = body.removeFromLeft (kColumnWidth);
-    const auto second = body.removeFromLeft (kSecondWidth);
+    const auto column = getLocalBounds().withTop (kHeaderHeight).removeFromLeft (kColumnWidth);
 
-    // Les colonnes sont posées sur le fond : seuls des traits les séparent.
+    // La colonne est posée sur le fond : seul un trait la sépare de l'écran.
     g.setColour (line);
-    g.drawVerticalLine (first.getRight(), (float) first.getY(), (float) first.getBottom());
-    g.drawVerticalLine (second.getRight(), (float) second.getY(), (float) second.getBottom());
+    g.drawVerticalLine (column.getRight(), (float) column.getY(), (float) column.getBottom());
 
-    paintSection (g, "DETECTION", sensitivity.getY() - 10, first.getX() + 18, first.getRight() - 18);
-    paintSection (g, "STEREO", stereoModeBox.getY() - 14, second.getX() + 18, second.getRight() - 18);
-    paintSection (g, "OUTPUT", mix.getY() - 12, second.getX() + 18, second.getRight() - 18);
-    paintSection (g, "ADVANCED", resolutionBox.getY() - 26, second.getX() + 18, second.getRight() - 18);
-
-    // Le nom de chaque menu de l'avancé, au-dessus de lui.
-    g.setColour (theme::haze);
-    g.setFont (capsFont (8.5f));
-    for (auto [box, name] : { std::pair { &resolutionBox, "RESOLUTION" }, { &oversampleBox, "OVERSAMPLE" },
-                              { &windowBox, "WINDOW" }, { &phaseBox, "PHASE" } })
-        g.drawText (name, box->getX() + 4, box->getY() - 13, box->getWidth(), 12, Justification::centredLeft, false);
+    paintSection (g, "DETECTION", sensitivity.getY() - 10, column.getX() + 18, column.getRight() - 18);
 }
 
 void ShaperEditor::resized()
@@ -448,8 +390,6 @@ void ShaperEditor::resized()
         licenseOverlay->fit (getLocalBounds(), 1.0f, row.removeFromRight (licenseOverlay->pillWidth()), Justification::centredRight);
     row.removeFromRight (18);
 
-    openButton.setBounds (row.removeFromRight (64));
-    row.removeFromRight (4);
     saveButton.setBounds (row.removeFromRight (60));
     row.removeFromRight (8);
 
@@ -462,7 +402,7 @@ void ShaperEditor::resized()
     presetBox.setBounds (row);
     presetNameEditor.setBounds (row);
 
-    // Première colonne : cut / boost, depth en grand, puis la détection.
+    // Une colonne : cut / boost, depth en grand, puis deux rangées de deux potards.
     auto first = bounds.removeFromLeft (kColumnWidth).reduced (14, 16);
 
     auto mode = first.removeFromTop (30);
@@ -470,11 +410,11 @@ void ShaperEditor::resized()
     boostButton.setBounds (mode.withTrimmedLeft (3));
     first.removeFromTop (10);
 
-    const auto small = jlimit (100, 124, (first.getHeight() - 200) / 2);
+    const auto small = jlimit (100, 130, (first.getHeight() - 200) / 2);
 
     auto lower = first.removeFromBottom (small);
     sharpness.setBounds (lower.removeFromLeft (lower.getWidth() / 2));
-    decayLfHf.setBounds (lower);
+    mix.setBounds (lower);
     first.removeFromBottom (8);
 
     auto upper = first.removeFromBottom (small);
@@ -482,32 +422,7 @@ void ShaperEditor::resized()
     decay.setBounds (upper);
     first.removeFromBottom (22);
 
-    depth.setBounds (first.withSizeKeepingCentre (jmin (first.getWidth(), 164), jmin (first.getHeight(), 186)));
-
-    // Deuxième colonne : stéréo, sortie, avancé.
-    auto second = bounds.removeFromLeft (kSecondWidth).reduced (14, 16);
-    second.removeFromTop (14);
-
-    stereoModeBox.setBounds (second.removeFromTop (28));
-    second.removeFromTop (8);
-    const auto rowHeight = jlimit (96, 118, (second.getHeight() - 150) / 2);
-    auto stereoRow = second.removeFromTop (rowHeight);
-    link.setBounds (stereoRow.removeFromLeft (stereoRow.getWidth() / 2));
-    balance.setBounds (stereoRow);
-
-    // L'avancé en bas : deux rangées de deux menus, chacun avec son nom au-dessus.
-    auto advanced = second.removeFromBottom (90);
-    auto advTop = advanced.removeFromTop (28 + 14).withTrimmedTop (14);
-    auto advBottom = advanced.withTrimmedTop (20).removeFromTop (28);
-    resolutionBox.setBounds (advTop.removeFromLeft (advTop.getWidth() / 2).withTrimmedRight (4));
-    oversampleBox.setBounds (advTop.withTrimmedLeft (4));
-    windowBox.setBounds (advBottom.removeFromLeft (advBottom.getWidth() / 2).withTrimmedRight (4));
-    phaseBox.setBounds (advBottom.withTrimmedLeft (4));
-    second.removeFromBottom (24);
-
-    auto outputRow = second.removeFromBottom (rowHeight);
-    mix.setBounds (outputRow.removeFromLeft (outputRow.getWidth() / 2));
-    trim.setBounds (outputRow);
+    depth.setBounds (first.withSizeKeepingCentre (jmin (first.getWidth(), 180), jmin (first.getHeight(), 200)));
 
     display.setBounds (bounds.reduced (14, 12));
 }

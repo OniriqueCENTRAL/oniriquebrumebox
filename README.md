@@ -41,11 +41,10 @@ l'effet sans DAW.
 
 ![Shaper](snapshot.png)
 
-- **En-tête** : la pastille de licence, DELTA, BYPASS.
-- **Première colonne** : CUT / BOOST, DEPTH (celui du mode choisi), puis SENSITIVITY, DECAY,
-  SHARPNESS, DECAY LF/HF.
-- **Deuxième colonne** : STEREO (mode, link, balance), OUTPUT (mix, trim), ADVANCED (resolution,
-  oversample, window, phase).
+- **En-tête** : les presets (< > menu SAVE), la pastille de licence, DELTA, BYPASS, ⋯ (couleur).
+- **La colonne** : CUT / BOOST, DEPTH (celui du mode choisi), puis SENSITIVITY, DECAY, SHARPNESS, MIX.
+  Les autres paramètres (stéréo, trim, decay LF/HF, resolution, oversample, window, phase) n'ont plus
+  de bouton depuis la simplification : ils gardent leur valeur, suivent les presets et l'automation.
 - **L'écran** : le spectre qui entre ; en rouge ce qui est coupé (en violet ce qui est poussé), sur
   l'échelle de droite ; la courbe de sensibilité et ses cinq points (coupe-bas, trois bandes,
   coupe-haut). Un point se glisse ; Cmd (Ctrl) en glissant ou la molette règle sa largeur ; Alt en
@@ -62,8 +61,9 @@ Capture sans hôte : `cmake --build build --target shaper_snapshot`, puis
 
 28 presets d'usine ONIRIQUE (`Source/Presets.h`), par catégorie : divers, batterie, voix, basse, guitare,
 synthés et claviers, image, master. Les presets personnels sont des fichiers `.preset` dans
-`Documents/Onirique/Shaper/Presets` (rangés par sous-dossier). OPEN ouvre tout fichier XML aux
-`<PARAM id="..." value="..."/>` portant nos identifiants, donc aussi un `.preset` de spiff.
+`Documents/Onirique/Shaper/Presets` (rangés par sous-dossier). Un fichier XML aux
+`<PARAM id="..." value="..."/>` portant nos identifiants (donc aussi un `.preset` de spiff) se lit avec
+`loadPresetFile` ; il n'y a plus de bouton OPEN.
 
 ## Visuels pour CENTRAL
 
