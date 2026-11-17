@@ -20,6 +20,7 @@ namespace
     constexpr int kHeaderHeight = 56;
     constexpr int kTitleLeft = 72;
     constexpr int kColumnWidth = 236;
+    constexpr int kFootHeight = 54;
     constexpr int kLogoWidth = 44;
     constexpr int kLogoMargin = 8;
 
@@ -82,13 +83,35 @@ ShaperEditor::ShaperEditor (ShaperProcessor& p)
     modeAttachment->sendInitialUpdate();
 
     const std::pair<Knob*, const char*> knobs[] = {
-        { &sensitivity, "sensitivity" }, { &decay, "decay" }, { &sharpness, "sharpness" }, { &mix, "mix" },
+        { &sensitivity, "sensitivity" }, { &decay, "decay" }, { &sharpness, "sharpness" }, { &decayLfHf, "decay lf/hf" },
     };
 
     for (const auto& [knob, id] : knobs)
     {
         knob->attach (state, id);
         addAndMakeVisible (*knob);
+    }
+
+    decayLfHf.slider.getProperties().set ("bipolar", true);
+
+    // Le pied : la sortie, la stéréo, le calcul.
+    auto choice = [this, &state] (ComboBox& box, const String& id, const String& heading)
+    {
+        box.addSectionHeading (heading);
+        if (auto* parameter = dynamic_cast<AudioParameterChoice*> (state.getParameter (id)))
+            for (int i = 0; i < parameter->choices.size(); ++i)
+                box.addItem (parameter->choices[i].toUpperCase(), i + 1);
+        comboAttachments.push_back (std::make_unique<AudioProcessorValueTreeState::ComboBoxAttachment> (state, id, box));
+        addAndMakeVisible (box);
+    };
+    choice (stereoBox, "stereo mode", "STEREO MODE");
+    choice (windowBox, "window length", "WINDOW");
+    choice (phaseBox, "phase mode", "PHASE");
+
+    for (const auto& [field, id] : { std::pair { &mix, "mix" }, { &output, "trim" }, { &link, "stereo link" }, { &balance, "stereo balance" } })
+    {
+        sliderAttachments.push_back (std::make_unique<SliderAttachment> (state, id, *field));
+        addAndMakeVisible (*field);
     }
 
     // Les presets.
@@ -146,7 +169,14 @@ ShaperEditor::ShaperEditor (ShaperProcessor& p)
     describe ({ &sensitivity }, fr ("Sensitivity : plus haut, plus de transitoires détectées ; plus bas, seulement les plus fortes. Pour l'entendre : DELTA, beaucoup de DEPTH, puis ce réglage."));
     describe ({ &decay }, fr ("Decay : le temps qu'une coupe ou un boost met à revenir. À 0, seul le tout début de la transitoire est touché ; au-dessus, la queue aussi. Sous 5 : le plus naturel."));
     describe ({ &sharpness }, fr ("Sharpness : la largeur (le q) de chaque coupe ou boost. Bas : plus naturel sur les percussions ; haut : pour les sons harmoniques et larges, comme le piano."));
-    describe ({ &mix }, fr ("Mix : le son d'origine mélangé au son traité. À 100 %, seulement le traité."));
+    describe ({ &decayLfHf }, fr ("Decay LF/HF : sous 5, les graves reviennent plus lentement que les aigus ; au-dessus, l'inverse ; à 5, pareil partout."));
+    describe ({ &mix }, fr ("Mix : le son d'origine mélangé au son traité. À 100 %, seulement le traité. Glissez vers le haut ou le bas."));
+    describe ({ &output }, fr ("Out : le gain du son traité, pour revenir au niveau de l'original. Glissez vers le haut ou le bas."));
+    describe ({ &stereoBox }, fr ("Mode stéréo : traiter la gauche et la droite, ou le mid et le side."));
+    describe ({ &link }, fr ("Link : à 100 %, la détection se fait sur les deux canaux ensemble et la même réduction s'applique aux deux ; à 0 %, deux instances mono."));
+    describe ({ &balance }, fr ("Bal : la part de traitement de chaque canal. 100/100 : les deux ; 100/0 : seulement la gauche (ou le mid) ; 0/100 : seulement la droite (ou le side)."));
+    describe ({ &windowBox }, fr ("Window : le compromis temps / fréquence. Short : presque pas de résonance, idéal pour les clics, moins bon dans le grave. Long : plus doux, pour les sources riches. Medium : entre les deux."));
+    describe ({ &phaseBox }, fr ("Phase : Linear, plus précis pour les coupes chirurgicales, peut pré-sonner dans le grave ; Minimum, sans pré-écho, souvent plus naturel pour les boosts."));
     hoverTip.setInterceptsMouseClicks (false, false);
     hoverTip.setAlwaysOnTop (true);
     addChildComponent (hoverTip);
@@ -371,6 +401,10 @@ void ShaperEditor::paint (Graphics& g)
     g.drawVerticalLine (column.getRight(), (float) column.getY(), (float) column.getBottom());
 
     paintSection (g, "DETECTION", sensitivity.getY() - 10, column.getX() + 18, column.getRight() - 18);
+
+    // Entre les trois familles du pied, comme sur ResoBox.
+    for (const auto x : { stereoBox.getX() - 11, windowBox.getX() - 11 })
+        g.fillRect ((float) x, (float) stereoBox.getY() + 3.0f, 1.0f, (float) stereoBox.getHeight() - 6.0f);
 }
 
 void ShaperEditor::resized()
@@ -414,7 +448,7 @@ void ShaperEditor::resized()
 
     auto lower = first.removeFromBottom (small);
     sharpness.setBounds (lower.removeFromLeft (lower.getWidth() / 2));
-    mix.setBounds (lower);
+    decayLfHf.setBounds (lower);
     first.removeFromBottom (8);
 
     auto upper = first.removeFromBottom (small);
@@ -423,6 +457,30 @@ void ShaperEditor::resized()
     first.removeFromBottom (22);
 
     depth.setBounds (first.withSizeKeepingCentre (jmin (first.getWidth(), 180), jmin (first.getHeight(), 200)));
+
+    // Le pied sous l'écran, rangé comme celui de ResoBox.
+    auto foot = bounds.removeFromBottom (kFootHeight).reduced (14, 0).withTrimmedBottom (12);
+    auto button = [&foot] (Component& c, int width, bool fromRight = false)
+    {
+        const auto area = fromRight ? foot.removeFromRight (width) : foot.removeFromLeft (width);
+        c.setBounds (area.withSizeKeepingCentre (width, 28));
+    };
+
+    // À droite : le calcul.
+    button (phaseBox, 118, true);
+    foot.removeFromRight (8);
+    button (windowBox, 118, true);
+
+    // À gauche : ce qui sort, puis la stéréo.
+    mix.setBounds (foot.removeFromLeft (92));
+    foot.removeFromLeft (12);
+    output.setBounds (foot.removeFromLeft (100));
+    foot.removeFromLeft (22);
+    button (stereoBox, 120);
+    foot.removeFromLeft (12);
+    link.setBounds (foot.removeFromLeft (94));
+    foot.removeFromLeft (12);
+    balance.setBounds (foot.removeFromLeft (90));
 
     display.setBounds (bounds.reduced (14, 12));
 }

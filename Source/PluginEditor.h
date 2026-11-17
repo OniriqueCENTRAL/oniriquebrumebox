@@ -15,10 +15,10 @@ namespace onirique
 /** Les paramètres de spiff, ni plus ni moins, avec l'allure ONIRIQUE.
 
     L'en-tête : les presets, la licence, DELTA, BYPASS. Une seule colonne : CUT ou BOOST,
-    DEPTH, puis SENSITIVITY, DECAY, SHARPNESS et MIX. L'écran : le spectre, la
-    réduction, et les cinq bandes de la courbe de sensibilité. Les autres paramètres
-    (stéréo, trim, decay LF/HF, avancé) restent dans les presets et l'automation,
-    sans bouton. */
+    DEPTH, puis SENSITIVITY, DECAY, SHARPNESS et DECAY LF/HF. L'écran : le spectre, la
+    réduction, et les cinq bandes de la courbe de sensibilité. Le pied, sous l'écran,
+    comme sur ResoBox : MIX, OUT | STEREO, LINK, BAL | WINDOW, PHASE. Resolution et
+    oversample restent dans les presets et l'automation, sans bouton. */
 class ShaperEditor final : public AudioProcessorEditor,
                              private Timer
 {
@@ -86,9 +86,14 @@ private:
     // Première colonne : cut ou boost, et la détection.
     TextButton cutButton { "CUT" }, boostButton { "BOOST" };
     std::unique_ptr<ParameterAttachment> modeAttachment;
-    Knob depth { "DEPTH" }, sensitivity { "SENSITIVITY" }, decay { "DECAY" }, sharpness { "SHARPNESS" }, mix { "MIX" };
+    Knob depth { "DEPTH" }, sensitivity { "SENSITIVITY" }, decay { "DECAY" }, sharpness { "SHARPNESS" }, decayLfHf { "DECAY LF/HF" };
+
+    // Le pied, comme celui de ResoBox.
+    ValueField mix { "MIX" }, output { "OUT" }, link { "LINK" }, balance { "BAL" };
+    ComboBox stereoBox, windowBox, phaseBox;
 
     std::vector<std::unique_ptr<ButtonAttachment>> buttonAttachments;
+    std::vector<std::unique_ptr<AudioProcessorValueTreeState::ComboBoxAttachment>> comboAttachments;
     std::vector<std::unique_ptr<SliderAttachment>> sliderAttachments;
 
     Image logo;

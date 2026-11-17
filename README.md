@@ -42,9 +42,11 @@ l'effet sans DAW.
 ![Shaper](snapshot.png)
 
 - **En-tête** : les presets (< > menu SAVE), la pastille de licence, DELTA, BYPASS, ⋯ (couleur).
-- **La colonne** : CUT / BOOST, DEPTH (celui du mode choisi), puis SENSITIVITY, DECAY, SHARPNESS, MIX.
-  Les autres paramètres (stéréo, trim, decay LF/HF, resolution, oversample, window, phase) n'ont plus
-  de bouton depuis la simplification : ils gardent leur valeur, suivent les presets et l'automation.
+- **La colonne** : CUT / BOOST, DEPTH (celui du mode choisi), puis SENSITIVITY, DECAY, SHARPNESS,
+  DECAY LF/HF.
+- **Le pied**, sous l'écran, rangé comme celui de ResoBox : MIX, OUT (trim) | STEREO, LINK, BAL |
+  WINDOW, PHASE. Resolution et oversample n'ont pas de bouton : ils gardent leur valeur, suivent
+  les presets et l'automation.
 - **L'écran** : le spectre qui entre ; en rouge ce qui est coupé (en violet ce qui est poussé), sur
   l'échelle de droite ; la courbe de sensibilité et ses cinq points (coupe-bas, trois bandes,
   coupe-haut). Un point se glisse ; Cmd (Ctrl) en glissant ou la molette règle sa largeur ; Alt en
